@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/link-fgfgui/mod-downloader-core/global"
 	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
 )
 
@@ -138,6 +139,100 @@ func TestInstallRequiresVersionAndLoader(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "mc-version is required") {
 		t.Fatalf("install error = %q", err)
+	}
+}
+
+func TestInferRuntimeFromModsParentManifest(t *testing.T) {
+	t.Cleanup(func() {
+		global.InvalidateVersions()
+		global.ClearLocalMods()
+	})
+	versionDir := filepath.Join(t.TempDir(), "versions", "fabric-1.21.1")
+	modsDir := filepath.Join(versionDir, "mods")
+	if err := os.MkdirAll(modsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "fabric-1.21.1.json"), []byte(`{
+		"name": "Fabric 1.21.1",
+		"id": "fabric-1.21.1",
+		"patches": [
+			{"id": "game", "version": "1.21.1"},
+			{"id": "fabric", "version": "0.16.0"}
+		]
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := inferRuntimeFromModsParent(modsDir)
+	if got.MinecraftVersion != "1.21.1" || got.ModLoader != "fabric" {
+		t.Fatalf("inferRuntimeFromModsParent() = %#v, want 1.21.1/fabric", got)
+	}
+}
+
+func TestInferRuntimeFromPrismModsDirUsesLauncherScan(t *testing.T) {
+	t.Cleanup(func() {
+		global.InvalidateVersions()
+		global.ClearLocalMods()
+	})
+	instancesDir := t.TempDir()
+	instanceDir := filepath.Join(instancesDir, "FabricPack")
+	gameDir := filepath.Join(instanceDir, ".minecraft")
+	versionDir := filepath.Join(gameDir, "versions", "fabric-loader-1.21.1")
+	modsDir := filepath.Join(versionDir, "mods")
+	if err := os.MkdirAll(modsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(instanceDir, "instance.cfg"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "fabric-loader-1.21.1.json"), []byte(`{
+		"name": "Fabric 1.21.1",
+		"id": "fabric-loader-1.21.1",
+		"patches": [
+			{"id": "game", "version": "1.21.1"},
+			{"id": "fabric", "version": "0.16.0"}
+		]
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	info, ok := inferVersionInfoForModsDir(modsDir)
+	if !ok {
+		t.Fatal("inferVersionInfoForModsDir() ok = false, want true")
+	}
+	if info.ID != "FabricPack/fabric-loader-1.21.1" || info.Name != "FabricPack" {
+		t.Fatalf("inferred version = %#v, want Prism composite ID", info)
+	}
+
+	got := inferRuntimeFromModsParent(modsDir)
+	if got.MinecraftVersion != "1.21.1" || got.ModLoader != "fabric" {
+		t.Fatalf("inferRuntimeFromModsParent() = %#v, want 1.21.1/fabric", got)
+	}
+}
+
+func TestInferRuntimeFromModsParentIgnoresUnsupportedLoader(t *testing.T) {
+	t.Cleanup(func() {
+		global.InvalidateVersions()
+		global.ClearLocalMods()
+	})
+	versionDir := filepath.Join(t.TempDir(), "versions", "vanilla-1.21.1")
+	modsDir := filepath.Join(versionDir, "mods")
+	if err := os.MkdirAll(modsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "vanilla-1.21.1.json"), []byte(`{
+		"name": "Vanilla 1.21.1",
+		"id": "vanilla-1.21.1",
+		"patches": [
+			{"id": "game", "version": "1.21.1"}
+		]
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := inferRuntimeFromModsParent(modsDir)
+	if got.MinecraftVersion != "1.21.1" || got.ModLoader != "" {
+		t.Fatalf("inferRuntimeFromModsParent() = %#v, want version only", got)
 	}
 }
 

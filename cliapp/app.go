@@ -15,6 +15,7 @@ import (
 
 	"github.com/link-fgfgui/mod-downloader-core/appcore"
 	"github.com/link-fgfgui/mod-downloader-core/database"
+	"github.com/link-fgfgui/mod-downloader-core/minecraft"
 	"github.com/link-fgfgui/mod-downloader-core/models"
 	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
 	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
@@ -53,8 +54,8 @@ func New(stdout, stderr io.Writer) *cli.App {
 		Usage: "Search and install Minecraft mods from inside a mods directory",
 		Flags: []cli.Flag{
 			jsonFlag(),
-			&cli.StringFlag{Name: "mc-version", Aliases: []string{"minecraft-version", "version"}, Usage: "Minecraft version", EnvVars: []string{"MINECRAFT_VERSION"}},
-			&cli.StringFlag{Name: "loader", Usage: "mod loader: fabric, forge, or neoforge", EnvVars: []string{"MOD_LOADER"}},
+			&cli.StringFlag{Name: "mc-version", Aliases: []string{"minecraft-version", "version"}, Usage: "Minecraft version; auto-detected from the current mods path when omitted", EnvVars: []string{"MINECRAFT_VERSION"}},
+			&cli.StringFlag{Name: "loader", Usage: "mod loader: fabric, forge, or neoforge; auto-detected from the current mods path when omitted", EnvVars: []string{"MOD_LOADER"}},
 			&cli.StringFlag{Name: "cache-dir", Usage: "metadata cache directory", EnvVars: []string{"MOD_DOWNLOADER_CACHE_DIR"}},
 			&cli.StringFlag{Name: "curseforge-api-key", Usage: "CurseForge API key", EnvVars: []string{"CF_API_KEY"}},
 			&cli.StringFlag{Name: "modrinth-api-key", Usage: "Modrinth API key", EnvVars: []string{"MODRINTH_API_KEY"}},
@@ -357,10 +358,151 @@ func (r runner) runtimeInput(c *cli.Context, targetCurrentDir bool) (runtimeInpu
 	if targetCurrentDir {
 		runtime.TargetModsDir = wd
 	}
+	if runtime.MinecraftVersion == "" || runtime.ModLoader == "" {
+		inferred := inferRuntimeFromModsParent(wd)
+		if runtime.MinecraftVersion == "" {
+			runtime.MinecraftVersion = inferred.MinecraftVersion
+		}
+		if runtime.ModLoader == "" {
+			runtime.ModLoader = inferred.ModLoader
+		}
+	}
 	if runtime.ModLoader != "" && !validLoader(runtime.ModLoader) {
 		return runtimeInput{}, fmt.Errorf("invalid loader %q: expected fabric, forge, or neoforge", runtime.ModLoader)
 	}
 	return runtime, nil
+}
+
+func inferRuntimeFromModsParent(workDir string) runtimeInput {
+	workDir = strings.TrimSpace(workDir)
+	if workDir == "" {
+		return runtimeInput{}
+	}
+	workDir = filepath.Clean(workDir)
+	if filepath.Base(workDir) != "mods" {
+		return runtimeInput{}
+	}
+	versionDir := filepath.Dir(workDir)
+	info, ok := inferVersionInfoForModsDir(workDir)
+	if !ok {
+		info, ok = inferVersionInfoFromDir(versionDir)
+	}
+	if !ok {
+		return runtimeInput{}
+	}
+	runtime := runtimeInput{MinecraftVersion: strings.TrimSpace(info.MinecraftVersion)}
+	if loader := normalizeLoader(info.ModLoader); validLoader(loader) {
+		runtime.ModLoader = loader
+	}
+	return runtime
+}
+
+func inferVersionInfoForModsDir(modsDir string) (structs.VersionInfo, bool) {
+	modsDir = strings.TrimSpace(modsDir)
+	if modsDir == "" {
+		return structs.VersionInfo{}, false
+	}
+	modsDir = cleanAbsPath(modsDir)
+	for _, root := range candidateMinecraftRootsForModsDir(modsDir) {
+		versions := appcore.New(appcore.Options{}).LoadVersionsFromDisk(root)
+		for _, version := range versions {
+			versionModsDir := filepath.Join(minecraft.VersionDirPath(root, version), "mods")
+			if samePath(versionModsDir, modsDir) {
+				return version, true
+			}
+		}
+	}
+	return structs.VersionInfo{}, false
+}
+
+func candidateMinecraftRootsForModsDir(modsDir string) []string {
+	versionDir := filepath.Dir(modsDir)
+	versionsDir := filepath.Dir(versionDir)
+	gameDir := filepath.Dir(versionsDir)
+
+	candidates := make([]string, 0, 4)
+	if gameDir != "." && gameDir != string(filepath.Separator) {
+		prismRoots := []string{filepath.Dir(gameDir)}
+		if filepath.Base(gameDir) == minecraft.PrismInstanceGameDirName {
+			prismRoots = append([]string{filepath.Dir(filepath.Dir(gameDir))}, prismRoots...)
+		}
+		for _, root := range prismRoots {
+			if minecraft.IsPrismInstancesDir(root) {
+				candidates = appendUniquePath(candidates, root)
+			}
+		}
+		candidates = appendUniquePath(candidates, gameDir)
+	}
+	return candidates
+}
+
+func inferVersionInfoFromDir(versionDir string) (structs.VersionInfo, bool) {
+	versionDir = strings.TrimSpace(versionDir)
+	if versionDir == "" {
+		return structs.VersionInfo{}, false
+	}
+	versionDir = filepath.Clean(versionDir)
+
+	candidates := make([]string, 0)
+	base := filepath.Base(versionDir)
+	baseManifest := base + ".json"
+	candidates = append(candidates, baseManifest)
+
+	entries, err := os.ReadDir(versionDir)
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || strings.ToLower(filepath.Ext(entry.Name())) != ".json" || entry.Name() == baseManifest {
+				continue
+			}
+			candidates = append(candidates, entry.Name())
+		}
+	}
+
+	var fallback structs.VersionInfo
+	for _, candidate := range candidates {
+		info, ok := minecraft.CheckManifest(filepath.Join(versionDir, candidate))
+		if !ok {
+			continue
+		}
+		if fallback.ID == "" && fallback.Name == "" {
+			fallback = info
+		}
+		if validLoader(info.ModLoader) {
+			return info, true
+		}
+	}
+	if fallback.ID != "" || fallback.Name != "" {
+		return fallback, true
+	}
+	return structs.VersionInfo{}, false
+}
+
+func appendUniquePath(paths []string, path string) []string {
+	path = cleanAbsPath(path)
+	if path == "" {
+		return paths
+	}
+	for _, existing := range paths {
+		if samePath(existing, path) {
+			return paths
+		}
+	}
+	return append(paths, path)
+}
+
+func samePath(a, b string) bool {
+	return cleanAbsPath(a) == cleanAbsPath(b)
+}
+
+func cleanAbsPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	return filepath.Clean(path)
 }
 
 func jsonFlag() cli.Flag {

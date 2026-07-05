@@ -38,7 +38,7 @@ go run ./cmd/mod-downloader-cli --help
 Open an instance's `mods` directory:
 
 ```sh
-cd /path/to/minecraft-instance/versions/fabric-1.21.1/mods
+cd /path/to/.minecraft/versions/fabric-1.21.1/mods
 ```
 
 Search for a mod:
@@ -91,11 +91,37 @@ mod-downloader-cli --mc-version 1.21.1 --loader fabric search sodium
 The CLI does not read or create `mod-downloader.toml`. Runtime settings are
 read from flags and environment variables only.
 
-When the current directory is named `mods`, the CLI also tries to infer missing
-runtime settings from the parent directory (`..`). It looks for a Minecraft
-version manifest such as `../fabric-1.21.1.json` and reuses the core manifest
-parser to detect the Minecraft version and loader. Explicit flags and
-environment variables always take precedence.
+### Automatic Version Detection
+
+When the current directory is named `mods`, `--mc-version` and `--loader` are
+optional if the CLI can infer them from the instance path.
+
+Detection reuses the same core launcher scanner used by the GUI:
+
+1. Standard launcher layout:
+
+   ```text
+   .minecraft/versions/<version-id>/mods
+   ```
+
+2. Prism Launcher layout with a `.minecraft` game directory:
+
+   ```text
+   instances/<instance>/.minecraft/versions/<version-id>/mods
+   ```
+
+3. Prism Launcher layout using the instance root as the game directory:
+
+   ```text
+   instances/<instance>/versions/<version-id>/mods
+   ```
+
+If launcher-root detection does not find a matching instance, the CLI falls
+back to reading a version manifest directly from the parent directory, for
+example `../fabric-1.21.1.json`.
+
+Explicit flags and environment variables always take precedence over automatic
+detection.
 
 If automatic detection is not possible, pass the settings explicitly:
 
