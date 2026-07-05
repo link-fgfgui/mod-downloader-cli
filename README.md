@@ -138,14 +138,17 @@ loader.
 
 ```sh
 mod-downloader-cli search [--platform modrinth|curseforge] [--limit 10] [--offset 0] <query>
+mod-downloader-cli search --slug <slug>
+mod-downloader-cli search --id <project-id>
 ```
 
-You can also pass the query with `--query`.
+You can also pass the query with `--query`. Query searches are regular text
+searches only; use `--slug` or `--id` when you want an exact project match.
 
 Human output columns:
 
 ```text
-ID  PLATFORM  TITLE  SLUG
+ID  SLUG  TITLE  PLATFORM
 ```
 
 Use project references from the `ID` column, such as `modrinth:sodium`, with

@@ -47,6 +47,17 @@ type showView struct {
 	Versions []models.ModVersion `json:"versions"`
 }
 
+type searchTarget struct {
+	Query string
+	Mode  string
+}
+
+const (
+	searchModeText = "search"
+	searchModeSlug = "slug"
+	searchModeID   = "id"
+)
+
 func New(stdout, stderr io.Writer) *cli.App {
 	r := runner{stdout: stdout, stderr: stderr}
 	app := &cli.App{
@@ -78,21 +89,20 @@ func (r runner) searchCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "search",
 		Usage:     "Search Modrinth and configured CurseForge metadata",
-		ArgsUsage: "<query>",
+		ArgsUsage: "[<query>]",
 		Flags: []cli.Flag{
 			jsonFlag(),
 			&cli.StringFlag{Name: "query", Usage: "search query; defaults to the first positional argument"},
+			&cli.StringFlag{Name: "slug", Usage: "match an exact project slug"},
+			&cli.StringFlag{Name: "id", Usage: "match an exact project ID"},
 			&cli.StringFlag{Name: "platform", Usage: "provider filter: modrinth or curseforge"},
 			&cli.IntFlag{Name: "limit", Value: 10, Usage: "maximum result count per provider"},
 			&cli.IntFlag{Name: "offset", Usage: "result offset"},
 		},
 		Action: func(c *cli.Context) error {
-			query := strings.TrimSpace(c.String("query"))
-			if query == "" {
-				query = strings.TrimSpace(c.Args().First())
-			}
-			if query == "" {
-				return errors.New("query is required")
+			target, err := searchTargetFromContext(c)
+			if err != nil {
+				return err
 			}
 			runtime, err := r.runtimeInput(c, false)
 			if err != nil {
@@ -102,18 +112,77 @@ func (r runner) searchCommand() *cli.Command {
 				return err
 			}
 			return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
-				update := svc.SearchModsCollect(appstructs.SearchModsRequest{
-					Query:     query,
-					Version:   runtime.MinecraftVersion,
-					ModLoader: runtime.ModLoader,
-					Limit:     c.Int("limit"),
-					Offset:    c.Int("offset"),
-				})
-				projects := filterProjectsByPlatform(update.Results, c.String("platform"))
+				projects := searchProjects(c, svc, runtime, target)
 				return r.write(c, projects, writeProjects)
 			})
 		},
 	}
+}
+
+func searchTargetFromContext(c *cli.Context) (searchTarget, error) {
+	type candidate struct {
+		name  string
+		query string
+		mode  string
+	}
+	candidates := make([]candidate, 0, 4)
+	if query := strings.TrimSpace(c.String("query")); query != "" {
+		candidates = append(candidates, candidate{name: "--query", query: query, mode: searchModeText})
+	}
+	if arg := strings.TrimSpace(c.Args().First()); arg != "" {
+		candidates = append(candidates, candidate{name: "<query>", query: arg, mode: searchModeText})
+	}
+	if slug := strings.TrimSpace(c.String("slug")); slug != "" {
+		candidates = append(candidates, candidate{name: "--slug", query: slug, mode: searchModeSlug})
+	}
+	if id := strings.TrimSpace(c.String("id")); id != "" {
+		candidates = append(candidates, candidate{name: "--id", query: id, mode: searchModeID})
+	}
+	if len(candidates) == 0 {
+		return searchTarget{}, errors.New("query, --slug, or --id is required")
+	}
+	if len(candidates) > 1 {
+		names := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			names = append(names, candidate.name)
+		}
+		return searchTarget{}, fmt.Errorf("pass only one search target: %s", strings.Join(names, ", "))
+	}
+	return searchTarget{Query: candidates[0].query, Mode: candidates[0].mode}, nil
+}
+
+func searchProjects(c *cli.Context, svc *appcore.Service, runtime runtimeInput, target searchTarget) []models.ModProject {
+	if target.Mode == searchModeText {
+		update := svc.SearchModsTextCollect(appstructs.SearchModsRequest{
+			Query:     target.Query,
+			Version:   runtime.MinecraftVersion,
+			ModLoader: runtime.ModLoader,
+			Limit:     c.Int("limit"),
+			Offset:    c.Int("offset"),
+		})
+		return filterProjectsByPlatform(update.Results, c.String("platform"))
+	}
+
+	platforms := []string{strings.ToLower(strings.TrimSpace(c.String("platform")))}
+	if platforms[0] == "" {
+		platforms = []string{"modrinth", "curseforge"}
+	}
+
+	projects := make([]models.ModProject, 0, len(platforms))
+	for _, platform := range platforms {
+		var project models.ModProject
+		var ok bool
+		switch target.Mode {
+		case searchModeSlug:
+			project, ok = svc.LookupProjectBySlug(platform, target.Query, runtime.MinecraftVersion, runtime.ModLoader)
+		case searchModeID:
+			project, ok = svc.LookupProjectByID(platform, target.Query, runtime.MinecraftVersion, runtime.ModLoader)
+		}
+		if ok {
+			projects = append(projects, project)
+		}
+	}
+	return projects
 }
 
 func (r runner) showCommand() *cli.Command {
@@ -700,9 +769,9 @@ func normalizeModRef(value string) string {
 func writeProjects(w io.Writer, value any) error {
 	projects := value.([]models.ModProject)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tPLATFORM\tTITLE\tSLUG")
+	fmt.Fprintln(tw, "ID\tSLUG\tTITLE\tPLATFORM")
 	for _, project := range projects {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", project.ID, project.Platform, project.Title, project.Slug)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", project.ID, project.Slug, project.Title, project.Platform)
 	}
 	return tw.Flush()
 }
