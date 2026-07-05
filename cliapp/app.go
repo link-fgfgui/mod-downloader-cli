@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/urfave/cli/v2"
 
 	"github.com/link-fgfgui/mod-downloader-core/appcore"
+	"github.com/link-fgfgui/mod-downloader-core/database"
 	"github.com/link-fgfgui/mod-downloader-core/models"
 	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
 	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
@@ -22,23 +25,47 @@ type runner struct {
 	stderr io.Writer
 }
 
+type runtimeInput struct {
+	WorkDir          string
+	MinecraftVersion string
+	ModLoader        string
+	CacheDir         string
+	TargetModsDir    string
+}
+
+type removedMod struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	FileName string `json:"fileName"`
+	Path     string `json:"path"`
+	DryRun   bool   `json:"dryRun"`
+}
+
+type showView struct {
+	Project  models.ModProject   `json:"project"`
+	Versions []models.ModVersion `json:"versions"`
+}
+
 func New(stdout, stderr io.Writer) *cli.App {
 	r := runner{stdout: stdout, stderr: stderr}
 	app := &cli.App{
 		Name:  "mod-downloader-cli",
-		Usage: "Search, inspect, and install Minecraft mods without the desktop UI",
+		Usage: "Search and install Minecraft mods from inside a mods directory",
 		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "json", Usage: "write structured JSON output"},
-			&cli.StringFlag{Name: "minecraft-dir", Usage: "override the Minecraft root directory"},
-			&cli.StringFlag{Name: "curseforge-api-key", Usage: "override the CurseForge API key"},
-			&cli.StringFlag{Name: "modrinth-api-key", Usage: "override the Modrinth API key"},
+			jsonFlag(),
+			&cli.StringFlag{Name: "mc-version", Aliases: []string{"minecraft-version", "version"}, Usage: "Minecraft version", EnvVars: []string{"MINECRAFT_VERSION"}},
+			&cli.StringFlag{Name: "loader", Usage: "mod loader: fabric, forge, or neoforge", EnvVars: []string{"MOD_LOADER"}},
+			&cli.StringFlag{Name: "cache-dir", Usage: "metadata cache directory", EnvVars: []string{"MOD_DOWNLOADER_CACHE_DIR"}},
+			&cli.StringFlag{Name: "curseforge-api-key", Usage: "CurseForge API key", EnvVars: []string{"CF_API_KEY"}},
+			&cli.StringFlag{Name: "modrinth-api-key", Usage: "Modrinth API key", EnvVars: []string{"MODRINTH_API_KEY"}},
 		},
 		Commands: []*cli.Command{
-			r.configCommand(),
-			r.versionsCommand(),
 			r.searchCommand(),
+			r.showCommand(),
 			r.installCommand(),
-			r.modsCommand(),
+			r.listCommand(),
+			r.removeCommand(),
+			r.cacheCommand(),
 		},
 	}
 	app.Writer = stdout
@@ -46,93 +73,76 @@ func New(stdout, stderr io.Writer) *cli.App {
 	return app
 }
 
-func (r runner) configCommand() *cli.Command {
-	return &cli.Command{
-		Name:  "config",
-		Usage: "Show or update effective configuration",
-		Flags: []cli.Flag{
-			jsonFlag(),
-			&cli.StringFlag{Name: "set-minecraft-dir", Usage: "persist a Minecraft root directory"},
-			&cli.StringFlag{Name: "theme", Usage: "persist theme preference: dark, light, or system"},
-			&cli.StringFlag{Name: "set-curseforge-api-key", Usage: "persist a CurseForge API key"},
-			&cli.StringFlag{Name: "set-modrinth-api-key", Usage: "persist a Modrinth API key"},
-			&cli.BoolFlag{Name: "clear-curseforge-api-key", Usage: "clear the persisted CurseForge API key"},
-			&cli.BoolFlag{Name: "clear-modrinth-api-key", Usage: "clear the persisted Modrinth API key"},
-		},
-		Action: func(c *cli.Context) error {
-			return r.withService(c, func(ctx context.Context, svc *appcore.Service) error {
-				if dir := strings.TrimSpace(c.String("set-minecraft-dir")); dir != "" {
-					svc.SaveMinecraftDirPreference(dir)
-				}
-				if theme := strings.TrimSpace(c.String("theme")); theme != "" {
-					svc.SaveTheme(theme)
-				}
-				keyReq := appcore.SaveApiKeysRequest{
-					CurseforgeApiKey: appcore.APIKeyKeepSentinel,
-					ModrinthApiKey:   appcore.APIKeyKeepSentinel,
-				}
-				if c.Bool("clear-curseforge-api-key") {
-					keyReq.CurseforgeApiKey = ""
-				}
-				if c.Bool("clear-modrinth-api-key") {
-					keyReq.ModrinthApiKey = ""
-				}
-				if c.IsSet("set-curseforge-api-key") {
-					keyReq.CurseforgeApiKey = c.String("set-curseforge-api-key")
-				}
-				if c.IsSet("set-modrinth-api-key") {
-					keyReq.ModrinthApiKey = c.String("set-modrinth-api-key")
-				}
-				if keyReq.CurseforgeApiKey != appcore.APIKeyKeepSentinel || keyReq.ModrinthApiKey != appcore.APIKeyKeepSentinel {
-					svc.SaveApiKeys(keyReq)
-				}
-				return r.write(c, svc.GetSettings(), writeSettings)
-			})
-		},
-	}
-}
-
-func (r runner) versionsCommand() *cli.Command {
-	return &cli.Command{
-		Name:  "versions",
-		Usage: "List supported Minecraft instances",
-		Flags: []cli.Flag{jsonFlag()},
-		Action: func(c *cli.Context) error {
-			return r.withService(c, func(ctx context.Context, svc *appcore.Service) error {
-				versions := svc.GetVersions()
-				return r.write(c, versions, writeVersions)
-			})
-		},
-	}
-}
-
 func (r runner) searchCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "search",
 		Usage:     "Search Modrinth and configured CurseForge metadata",
-		ArgsUsage: "[query]",
+		ArgsUsage: "<query>",
 		Flags: []cli.Flag{
 			jsonFlag(),
 			&cli.StringFlag{Name: "query", Usage: "search query; defaults to the first positional argument"},
-			&cli.StringFlag{Name: "version", Aliases: []string{"minecraft-version"}, Usage: "Minecraft version filter"},
-			&cli.StringFlag{Name: "loader", Usage: "mod loader filter: fabric, forge, or neoforge"},
+			&cli.StringFlag{Name: "platform", Usage: "provider filter: modrinth or curseforge"},
 			&cli.IntFlag{Name: "limit", Value: 10, Usage: "maximum result count per provider"},
 			&cli.IntFlag{Name: "offset", Usage: "result offset"},
 		},
 		Action: func(c *cli.Context) error {
-			return r.withService(c, func(ctx context.Context, svc *appcore.Service) error {
-				query := strings.TrimSpace(c.String("query"))
-				if query == "" {
-					query = strings.TrimSpace(c.Args().First())
-				}
+			query := strings.TrimSpace(c.String("query"))
+			if query == "" {
+				query = strings.TrimSpace(c.Args().First())
+			}
+			if query == "" {
+				return errors.New("query is required")
+			}
+			runtime, err := r.runtimeInput(c, false)
+			if err != nil {
+				return err
+			}
+			if err := requireVersionLoader(runtime); err != nil {
+				return err
+			}
+			return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
 				update := svc.SearchModsCollect(appstructs.SearchModsRequest{
 					Query:     query,
-					Version:   c.String("version"),
-					ModLoader: c.String("loader"),
+					Version:   runtime.MinecraftVersion,
+					ModLoader: runtime.ModLoader,
 					Limit:     c.Int("limit"),
 					Offset:    c.Int("offset"),
 				})
-				return r.write(c, update.Results, writeProjects)
+				projects := filterProjectsByPlatform(update.Results, c.String("platform"))
+				return r.write(c, projects, writeProjects)
+			})
+		},
+	}
+}
+
+func (r runner) showCommand() *cli.Command {
+	return &cli.Command{
+		Name:      "show",
+		Usage:     "Show matching project versions",
+		ArgsUsage: "<project>",
+		Flags: []cli.Flag{
+			jsonFlag(),
+			&cli.StringFlag{Name: "project", Usage: "project ID, slug, or platform-prefixed reference"},
+			&cli.StringFlag{Name: "platform", Usage: "project platform: modrinth or curseforge"},
+		},
+		Action: func(c *cli.Context) error {
+			runtime, err := r.runtimeInput(c, false)
+			if err != nil {
+				return err
+			}
+			if err := requireVersionLoader(runtime); err != nil {
+				return err
+			}
+			return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
+				project, err := resolveProject(c, svc, runtime)
+				if err != nil {
+					return err
+				}
+				view := showView{
+					Project:  project,
+					Versions: svc.ListMatchingProjectVersions(project, runtime.MinecraftVersion, runtime.ModLoader),
+				}
+				return r.write(c, view, writeShow)
 			})
 		},
 	}
@@ -140,62 +150,89 @@ func (r runner) searchCommand() *cli.Command {
 
 func (r runner) installCommand() *cli.Command {
 	return &cli.Command{
-		Name:  "install",
-		Usage: "Install a project into a target instance",
+		Name:      "install",
+		Usage:     "Install projects into the current mods directory",
+		ArgsUsage: "<project...>",
 		Flags: []cli.Flag{
 			jsonFlag(),
-			&cli.StringFlag{Name: "project", Usage: "project ID, slug, or platform-prefixed reference such as modrinth:sodium", Required: true},
+			&cli.StringFlag{Name: "project", Usage: "project ID, slug, or platform-prefixed reference"},
 			&cli.StringFlag{Name: "platform", Usage: "project platform: modrinth or curseforge"},
-			&cli.StringFlag{Name: "instance", Usage: "target version/instance key from the versions command", Required: true},
 			&cli.StringFlag{Name: "version-id", Usage: "explicit platform version ID to install"},
+			&cli.BoolFlag{Name: "force", Usage: "allow running outside a directory named mods"},
 			&cli.DurationFlag{Name: "timeout", Usage: "optional install timeout, for example 2m"},
 		},
 		Action: func(c *cli.Context) error {
-			return r.withService(c, func(ctx context.Context, svc *appcore.Service) error {
+			runtime, err := r.runtimeInput(c, true)
+			if err != nil {
+				return err
+			}
+			if err := requireVersionLoader(runtime); err != nil {
+				return err
+			}
+			if err := validateModsWorkDir(runtime.TargetModsDir, c.Bool("force")); err != nil {
+				return err
+			}
+			return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
 				if timeout := c.Duration("timeout"); timeout > 0 {
 					var cancel context.CancelFunc
 					ctx, cancel = context.WithTimeout(ctx, timeout)
 					defer cancel()
 				}
-				selected, err := svc.SelectVersion(c.String("instance"))
-				if err != nil {
-					return err
+
+				refs := projectRefs(c)
+				if len(refs) == 0 {
+					return errors.New("project is required")
 				}
-				project, err := resolveProject(c, svc)
-				if err != nil {
-					return err
+				results := make([]appcore.InstallWaitResult, 0, len(refs))
+				for _, ref := range refs {
+					project, err := resolveProjectRef(ref, c.String("platform"), svc, runtime)
+					if err != nil {
+						return err
+					}
+					result := svc.InstallModToDirAndWait(ctx, appcore.InstallToDirRequest{
+						ProjectID:        project.ID,
+						Project:          project,
+						TargetDir:        runtime.TargetModsDir,
+						MinecraftVersion: runtime.MinecraftVersion,
+						ModLoader:        runtime.ModLoader,
+						VersionID:        c.String("version-id"),
+					})
+					if len(result.Errors) > 0 {
+						return cli.Exit(result.Errors[0].Reason, 1)
+					}
+					if result.Result.Skipped {
+						return cli.Exit(result.Result.Reason, 1)
+					}
+					results = append(results, result)
 				}
-				result := svc.InstallModAndWait(ctx, appstructs.ModDownloadRequest{
-					ProjectID:        project.ID,
-					Result:           project,
-					MinecraftVersion: selected.MinecraftVersion,
-					ModLoader:        selected.ModLoader,
-					VersionID:        c.String("version-id"),
-				})
-				if len(result.Errors) > 0 {
-					return cli.Exit(result.Errors[0].Reason, 1)
+				if len(results) == 1 {
+					return r.write(c, results[0], writeInstallResult)
 				}
-				if result.Result.Skipped {
-					return cli.Exit(result.Result.Reason, 1)
-				}
-				return r.write(c, result, writeInstallResult)
+				return r.write(c, results, writeInstallResults)
 			})
 		},
 	}
 }
 
-func (r runner) modsCommand() *cli.Command {
+func (r runner) listCommand() *cli.Command {
 	return &cli.Command{
-		Name:  "mods",
-		Usage: "List installed local mods for an instance",
+		Name:    "list",
+		Aliases: []string{"mods"},
+		Usage:   "List installed mods in the current mods directory",
 		Flags: []cli.Flag{
 			jsonFlag(),
-			&cli.StringFlag{Name: "instance", Usage: "version/instance key from the versions command"},
+			&cli.BoolFlag{Name: "force", Usage: "allow running outside a directory named mods"},
 		},
 		Action: func(c *cli.Context) error {
-			return r.withService(c, func(ctx context.Context, svc *appcore.Service) error {
-				svc.GetVersions()
-				mods, err := svc.LocalMods(c.String("instance"))
+			runtime, err := r.runtimeInput(c, true)
+			if err != nil {
+				return err
+			}
+			if err := validateModsWorkDir(runtime.TargetModsDir, c.Bool("force")); err != nil {
+				return err
+			}
+			return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
+				mods, err := svc.LocalModsInDir(runtime.TargetModsDir, runtime.MinecraftVersion, runtime.ModLoader)
 				if err != nil {
 					return err
 				}
@@ -205,12 +242,77 @@ func (r runner) modsCommand() *cli.Command {
 	}
 }
 
-func (r runner) withService(c *cli.Context, fn func(context.Context, *appcore.Service) error) error {
-	overrides := appcore.ConfigOverrides{}
-	if c.IsSet("minecraft-dir") {
-		overrides.MinecraftDir = c.String("minecraft-dir")
-		overrides.HasMinecraftDir = true
+func (r runner) removeCommand() *cli.Command {
+	return &cli.Command{
+		Name:      "remove",
+		Usage:     "Remove installed mods from the current mods directory",
+		ArgsUsage: "<mod...>",
+		Flags: []cli.Flag{
+			jsonFlag(),
+			&cli.BoolFlag{Name: "dry-run", Usage: "print matching files without deleting them"},
+			&cli.BoolFlag{Name: "force", Usage: "allow running outside a directory named mods"},
+		},
+		Action: func(c *cli.Context) error {
+			runtime, err := r.runtimeInput(c, true)
+			if err != nil {
+				return err
+			}
+			if err := validateModsWorkDir(runtime.TargetModsDir, c.Bool("force")); err != nil {
+				return err
+			}
+			targets := normalizedArgs(c.Args().Slice())
+			if len(targets) == 0 {
+				return errors.New("mod is required")
+			}
+			return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
+				mods, err := svc.LocalModsInDir(runtime.TargetModsDir, runtime.MinecraftVersion, runtime.ModLoader)
+				if err != nil {
+					return err
+				}
+				removed, err := removeMatchingMods(runtime.TargetModsDir, mods, targets, c.Bool("dry-run"))
+				if err != nil {
+					return err
+				}
+				if len(removed) == 0 {
+					return cli.Exit("no matching installed mods", 1)
+				}
+				return r.write(c, removed, writeRemovedMods)
+			})
+		},
 	}
+}
+
+func (r runner) cacheCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "cache",
+		Usage: "Manage metadata cache",
+		Subcommands: []*cli.Command{
+			{
+				Name:  "clean",
+				Usage: "Delete the metadata cache file",
+				Flags: []cli.Flag{jsonFlag()},
+				Action: func(c *cli.Context) error {
+					cachePath, err := cacheFilePath(c)
+					if err != nil {
+						return err
+					}
+					err = os.Remove(cachePath)
+					if err != nil && !os.IsNotExist(err) {
+						return err
+					}
+					result := map[string]any{
+						"path":    cachePath,
+						"removed": err == nil,
+					}
+					return r.write(c, result, writeCacheClean)
+				},
+			},
+		},
+	}
+}
+
+func (r runner) withService(c *cli.Context, runtime runtimeInput, fn func(context.Context, *appcore.Service) error) error {
+	overrides := appcore.ConfigOverrides{}
 	if c.IsSet("curseforge-api-key") {
 		overrides.CurseForgeAPIKey = c.String("curseforge-api-key")
 		overrides.HasCurseForgeAPIKey = true
@@ -219,7 +321,17 @@ func (r runner) withService(c *cli.Context, fn func(context.Context, *appcore.Se
 		overrides.ModrinthAPIKey = c.String("modrinth-api-key")
 		overrides.HasModrinthAPIKey = true
 	}
-	svc := appcore.New(appcore.Options{ConfigOverrides: overrides})
+	svc := appcore.New(appcore.Options{
+		ConfigOverrides: overrides,
+		Runtime: appcore.RuntimeOptions{
+			WorkDir:          runtime.WorkDir,
+			TargetModsDir:    runtime.TargetModsDir,
+			MinecraftVersion: runtime.MinecraftVersion,
+			ModLoader:        runtime.ModLoader,
+			CacheDir:         runtime.CacheDir,
+			NoConfigFile:     true,
+		},
+	})
 	ctx := c.Context
 	if ctx == nil {
 		ctx = context.Background()
@@ -229,6 +341,26 @@ func (r runner) withService(c *cli.Context, fn func(context.Context, *appcore.Se
 	}
 	defer svc.Close()
 	return fn(ctx, svc)
+}
+
+func (r runner) runtimeInput(c *cli.Context, targetCurrentDir bool) (runtimeInput, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return runtimeInput{}, err
+	}
+	runtime := runtimeInput{
+		WorkDir:          wd,
+		MinecraftVersion: strings.TrimSpace(c.String("mc-version")),
+		ModLoader:        normalizeLoader(c.String("loader")),
+		CacheDir:         strings.TrimSpace(c.String("cache-dir")),
+	}
+	if targetCurrentDir {
+		runtime.TargetModsDir = wd
+	}
+	if runtime.ModLoader != "" && !validLoader(runtime.ModLoader) {
+		return runtimeInput{}, fmt.Errorf("invalid loader %q: expected fabric, forge, or neoforge", runtime.ModLoader)
+	}
+	return runtime, nil
 }
 
 func jsonFlag() cli.Flag {
@@ -244,12 +376,20 @@ func (r runner) write(c *cli.Context, value any, human func(io.Writer, any) erro
 	return human(r.stdout, value)
 }
 
-func resolveProject(c *cli.Context, svc *appcore.Service) (models.ModProject, error) {
+func resolveProject(c *cli.Context, svc *appcore.Service, runtime runtimeInput) (models.ModProject, error) {
 	ref := strings.TrimSpace(c.String("project"))
+	if ref == "" {
+		ref = strings.TrimSpace(c.Args().First())
+	}
+	return resolveProjectRef(ref, c.String("platform"), svc, runtime)
+}
+
+func resolveProjectRef(ref, platform string, svc *appcore.Service, runtime runtimeInput) (models.ModProject, error) {
+	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return models.ModProject{}, errors.New("project is required")
 	}
-	platform := strings.ToLower(strings.TrimSpace(c.String("platform")))
+	platform = strings.ToLower(strings.TrimSpace(platform))
 	parsedPlatform, projectID := models.ParseProjectKey(ref)
 	if platform == "" {
 		platform = parsedPlatform
@@ -260,8 +400,7 @@ func resolveProject(c *cli.Context, svc *appcore.Service) (models.ModProject, er
 	if platform == "" {
 		return models.ModProject{}, errors.New("platform is required when project is not prefixed")
 	}
-	selected := svc.GetSelectedVersion()
-	project, ok := svc.LookupProject(platform, ref, selected.MinecraftVersion, selected.ModLoader)
+	project, ok := svc.LookupProject(platform, ref, runtime.MinecraftVersion, runtime.ModLoader)
 	if ok {
 		return project, nil
 	}
@@ -274,24 +413,146 @@ func resolveProject(c *cli.Context, svc *appcore.Service) (models.ModProject, er
 	}, nil
 }
 
-func writeSettings(w io.Writer, value any) error {
-	settings := value.(appcore.SettingsView)
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(tw, "THEME\t%s\n", settings.Theme)
-	fmt.Fprintf(tw, "MINECRAFT_DIR\t%s\n", settings.MinecraftDir)
-	fmt.Fprintf(tw, "CURSEFORGE_KEY\t%s\n", keyState(settings.HasCurseforgeKey, settings.CurseforgeKeyMask))
-	fmt.Fprintf(tw, "MODRINTH_KEY\t%s\n", keyState(settings.HasModrinthKey, settings.ModrinthKeyMask))
-	return tw.Flush()
+func projectRefs(c *cli.Context) []string {
+	refs := normalizedArgs(c.Args().Slice())
+	if project := strings.TrimSpace(c.String("project")); project != "" {
+		refs = append([]string{project}, refs...)
+	}
+	return refs
 }
 
-func writeVersions(w io.Writer, value any) error {
-	versions := value.([]structs.VersionInfo)
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "KEY\tNAME\tMINECRAFT\tLOADER")
-	for _, version := range versions {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", version.ID, version.Name, version.MinecraftVersion, version.ModLoader)
+func normalizedArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg != "" {
+			out = append(out, arg)
+		}
 	}
-	return tw.Flush()
+	return out
+}
+
+func filterProjectsByPlatform(projects []models.ModProject, platform string) []models.ModProject {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	if platform == "" {
+		return projects
+	}
+	out := make([]models.ModProject, 0, len(projects))
+	for _, project := range projects {
+		if strings.ToLower(strings.TrimSpace(project.Platform)) == platform {
+			out = append(out, project)
+		}
+	}
+	return out
+}
+
+func requireVersionLoader(runtime runtimeInput) error {
+	if strings.TrimSpace(runtime.MinecraftVersion) == "" {
+		return errors.New("mc-version is required; pass --mc-version or set MINECRAFT_VERSION")
+	}
+	if strings.TrimSpace(runtime.ModLoader) == "" {
+		return errors.New("loader is required; pass --loader or set MOD_LOADER")
+	}
+	return nil
+}
+
+func validateModsWorkDir(dir string, force bool) error {
+	if strings.TrimSpace(dir) == "" {
+		return errors.New("empty mods directory")
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("mods path is not a directory: %s", dir)
+	}
+	if !force && filepath.Base(filepath.Clean(dir)) != "mods" {
+		return errors.New("current directory must be a mods directory; cd into your instance's mods folder or pass --force")
+	}
+	return nil
+}
+
+func normalizeLoader(loader string) string {
+	return strings.ToLower(strings.TrimSpace(loader))
+}
+
+func validLoader(loader string) bool {
+	switch normalizeLoader(loader) {
+	case "fabric", "forge", "neoforge":
+		return true
+	default:
+		return false
+	}
+}
+
+func cacheFilePath(c *cli.Context) (string, error) {
+	if cacheDir := strings.TrimSpace(c.String("cache-dir")); cacheDir != "" {
+		return filepath.Join(cacheDir, database.CacheFileName), nil
+	}
+	return database.DefaultCachePath()
+}
+
+func removeMatchingMods(modsDir string, mods []structs.ModInfo, targets []string, dryRun bool) ([]removedMod, error) {
+	targetSet := make(map[string]bool, len(targets))
+	for _, target := range targets {
+		targetSet[normalizeModRef(target)] = true
+	}
+
+	var removed []removedMod
+	seen := make(map[string]bool)
+	for _, mod := range mods {
+		if !matchesAnyModTarget(mod, targetSet) {
+			continue
+		}
+		path := mod.Path
+		if strings.TrimSpace(path) == "" {
+			path = filepath.Join(modsDir, mod.FileName)
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(modsDir, path)
+		}
+		path = filepath.Clean(path)
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		if !dryRun {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return nil, err
+			}
+		}
+		removed = append(removed, removedMod{
+			ID:       mod.ID,
+			Name:     mod.Name,
+			FileName: mod.FileName,
+			Path:     path,
+			DryRun:   dryRun,
+		})
+	}
+	return removed, nil
+}
+
+func matchesAnyModTarget(mod structs.ModInfo, targets map[string]bool) bool {
+	candidates := []string{
+		mod.ID,
+		mod.Name,
+		mod.FileName,
+		strings.TrimSuffix(mod.FileName, filepath.Ext(mod.FileName)),
+	}
+	for _, candidate := range candidates {
+		if targets[normalizeModRef(candidate)] {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeModRef(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.TrimSuffix(value, ".disabled")
+	value = strings.TrimSuffix(value, ".jar")
+	return value
 }
 
 func writeProjects(w io.Writer, value any) error {
@@ -300,6 +561,21 @@ func writeProjects(w io.Writer, value any) error {
 	fmt.Fprintln(tw, "ID\tPLATFORM\tTITLE\tSLUG")
 	for _, project := range projects {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", project.ID, project.Platform, project.Title, project.Slug)
+	}
+	return tw.Flush()
+}
+
+func writeShow(w io.Writer, value any) error {
+	view := value.(showView)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(tw, "ID\t%s\n", view.Project.ID)
+	fmt.Fprintf(tw, "PLATFORM\t%s\n", view.Project.Platform)
+	fmt.Fprintf(tw, "TITLE\t%s\n", view.Project.Title)
+	fmt.Fprintf(tw, "SLUG\t%s\n", view.Project.Slug)
+	fmt.Fprintln(tw)
+	fmt.Fprintln(tw, "VERSION_ID\tNAME\tFILE\tDOWNLOADS")
+	for _, version := range view.Versions {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\n", version.ID, version.Name, version.FileName, version.Downloads)
 	}
 	return tw.Flush()
 }
@@ -318,6 +594,16 @@ func writeInstallResult(w io.Writer, value any) error {
 	return nil
 }
 
+func writeInstallResults(w io.Writer, value any) error {
+	results := value.([]appcore.InstallWaitResult)
+	for _, result := range results {
+		if err := writeInstallResult(w, result); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeMods(w io.Writer, value any) error {
 	mods := value.([]structs.ModInfo)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -328,12 +614,22 @@ func writeMods(w io.Writer, value any) error {
 	return tw.Flush()
 }
 
-func keyState(ok bool, mask string) string {
-	if !ok {
-		return "not set"
+func writeRemovedMods(w io.Writer, value any) error {
+	removed := value.([]removedMod)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tNAME\tFILE\tREMOVED")
+	for _, mod := range removed {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%t\n", mod.ID, mod.Name, mod.FileName, !mod.DryRun)
 	}
-	if mask == "" {
-		return "set"
+	return tw.Flush()
+}
+
+func writeCacheClean(w io.Writer, value any) error {
+	result := value.(map[string]any)
+	if result["removed"].(bool) {
+		fmt.Fprintf(w, "removed %s\n", result["path"])
+		return nil
 	}
-	return mask
+	fmt.Fprintf(w, "cache not found: %s\n", result["path"])
+	return nil
 }
