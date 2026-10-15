@@ -14,16 +14,17 @@ import (
 
 	"github.com/link-fgfgui/mod-downloader-core/global"
 	"github.com/link-fgfgui/mod-downloader-core/models"
+	"github.com/link-fgfgui/mod-downloader-core/storage"
 	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
 )
 
-func TestAppDoesNotExposePersistentConfigOrVersionsCommands(t *testing.T) {
+func TestAppExposesConfigButNotVersionsCommand(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	app := New(&stdout, &stderr)
 
-	if app.Command("config") != nil {
-		t.Fatal("config command is exposed")
+	if app.Command("config") == nil {
+		t.Fatal("config command is not exposed")
 	}
 	if app.Command("versions") != nil {
 		t.Fatal("versions command is exposed")
@@ -348,7 +349,7 @@ func TestInferRuntimeFromModsParentIgnoresUnsupportedLoader(t *testing.T) {
 
 func TestCacheCleanUsesCacheDir(t *testing.T) {
 	cacheDir := t.TempDir()
-	cachePath := filepath.Join(cacheDir, "mods.gob.zst")
+	cachePath := filepath.Join(cacheDir, storage.CacheFileName)
 	if err := os.WriteFile(cachePath, []byte("cache"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -14,9 +14,9 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/database"
 	"github.com/link-fgfgui/mod-downloader-core/minecraft"
 	"github.com/link-fgfgui/mod-downloader-core/models"
+	"github.com/link-fgfgui/mod-downloader-core/storage"
 	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
 	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
 )
@@ -32,6 +32,10 @@ type runtimeInput struct {
 	ModLoader        string
 	CacheDir         string
 	TargetModsDir    string
+	// DirExplicit is true when the target directory was selected explicitly via
+	// --dir/-C (or the minecraft-dir config key), so the "directory must be
+	// named mods" safety check is bypassed.
+	DirExplicit bool
 }
 
 type removedMod struct {
@@ -70,6 +74,7 @@ func New(stdout, stderr io.Writer) *cli.App {
 			&cli.StringFlag{Name: "cache-dir", Usage: "metadata cache directory", EnvVars: []string{"MOD_DOWNLOADER_CACHE_DIR"}},
 			&cli.StringFlag{Name: "curseforge-api-key", Usage: "CurseForge API key", EnvVars: []string{"CF_API_KEY"}},
 			&cli.StringFlag{Name: "modrinth-api-key", Usage: "Modrinth API key", EnvVars: []string{"MODRINTH_API_KEY"}},
+			&cli.StringFlag{Name: "dir", Aliases: []string{"C"}, Usage: "target mods directory, or its parent Minecraft instance / version directory", EnvVars: []string{"MOD_DOWNLOADER_DIR"}},
 		},
 		Commands: []*cli.Command{
 			r.searchCommand(),
@@ -77,11 +82,23 @@ func New(stdout, stderr io.Writer) *cli.App {
 			r.installCommand(),
 			r.listCommand(),
 			r.removeCommand(),
+			r.enableCommand(),
+			r.disableCommand(),
+			r.checkUpdateCommand(),
+			r.upgradeCommand(),
+			r.verifyCommand(),
+			r.infoCommand(),
+			r.exportCommand(),
+			r.importCommand(),
+			r.configCommand(),
 			r.cacheCommand(),
 		},
 	}
 	app.Writer = stdout
 	app.ErrWriter = stderr
+	for _, cmd := range app.Commands {
+		enableTrailingFlags(cmd)
+	}
 	return app
 }
 
@@ -221,14 +238,18 @@ func (r runner) showCommand() *cli.Command {
 func (r runner) installCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "install",
+		Aliases:   []string{"i"},
 		Usage:     "Install projects into the current mods directory",
 		ArgsUsage: "<project...>",
 		Flags: []cli.Flag{
 			jsonFlag(),
 			&cli.StringFlag{Name: "project", Usage: "project ID, slug, or platform-prefixed reference"},
 			&cli.StringFlag{Name: "platform", Usage: "project platform: modrinth or curseforge"},
-			&cli.StringFlag{Name: "version-id", Usage: "explicit platform version ID to install"},
+			&cli.StringFlag{Name: "version-id", Usage: "advanced: explicit platform version ID for a single project (prefer automatic derivation)"},
 			&cli.BoolFlag{Name: "force", Usage: "allow running outside a directory named mods"},
+			&cli.BoolFlag{Name: "yes", Aliases: []string{"y"}, Usage: "non-interactive: accept automatic choices without prompting"},
+			&cli.BoolFlag{Name: "no-input", Usage: "non-interactive: never open the interactive selector"},
+			&cli.BoolFlag{Name: "dry-run", Usage: "print the resolved install plan without downloading or writing files"},
 			&cli.DurationFlag{Name: "timeout", Usage: "optional install timeout, for example 2m"},
 		},
 		Action: func(c *cli.Context) error {
@@ -239,46 +260,93 @@ func (r runner) installCommand() *cli.Command {
 			if err := requireVersionLoader(runtime); err != nil {
 				return err
 			}
-			if err := validateModsWorkDir(runtime.TargetModsDir, c.Bool("force")); err != nil {
+			if err := validateModsWorkDir(runtime.TargetModsDir, c.Bool("force"), runtime.DirExplicit); err != nil {
 				return err
 			}
+			targets, err := ParseInstallTargets(projectRefs(c), "")
+			if err != nil {
+				return err
+			}
+			if err := versionIDExclusivity(len(targets), c.String("version-id")); err != nil {
+				return err
+			}
+			platformFilter := normalizePlatformName(c.String("platform"))
 			return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
 				if timeout := c.Duration("timeout"); timeout > 0 {
 					var cancel context.CancelFunc
 					ctx, cancel = context.WithTimeout(ctx, timeout)
 					defer cancel()
 				}
+				interactive := interactiveAllowed(c)
 
-				refs := projectRefs(c)
-				if len(refs) == 0 {
-					return errors.New("project is required")
-				}
-				results := make([]appcore.InstallWaitResult, 0, len(refs))
-				for _, ref := range refs {
-					project, err := resolveProjectRef(ref, c.String("platform"), svc, runtime)
+				// Phase 2: resolve every target to exactly one project.
+				plan := make([]InstallPlanEntry, 0, len(targets))
+				for _, target := range targets {
+					projects, err := resolveInstallTarget(svc, target, runtime, platformFilter, interactive)
 					if err != nil {
 						return err
 					}
-					result := svc.InstallModToDirAndWait(ctx, appcore.InstallToDirRequest{
-						ProjectID:        project.ID,
-						Project:          project,
+					for _, project := range projects {
+						plan = append(plan, buildInstallPlanEntry(svc, target.Raw, project, runtime))
+					}
+				}
+
+				// Phase 5.1: preview the resolved plan (skipped in JSON mode where
+				// the structured report is the machine-readable output).
+				if !c.Bool("json") {
+					_ = r.writeInstallPlan(plan, runtime.MinecraftVersion+" | "+runtime.ModLoader)
+				}
+
+				if c.Bool("dry-run") {
+					if c.Bool("json") {
+						return writeInstallPlanJSON(r.stdout, plan)
+					}
+					_, _ = fmt.Fprintln(r.stdout, "dry-run: no files were downloaded or written.")
+					return nil
+				}
+
+				// Phase 5.2: execute the installs with a live progress line, and
+				// Phase 5.3: collect a unified report (skipped + errors) instead of
+				// aborting on the first failure so every target is accounted for.
+				jsonMode := c.Bool("json")
+				results := make([]appcore.InstallWaitResult, 0, len(plan))
+				report := InstallReport{Targets: targetRaws(plan), Resolved: plan}
+				failureReasons := []string{}
+				for _, entry := range plan {
+					result := r.installWithProgress(ctx, svc, appcore.InstallToDirRequest{
+						ProjectID:        entry.Project.ID,
+						Project:          entry.Project,
 						TargetDir:        runtime.TargetModsDir,
 						MinecraftVersion: runtime.MinecraftVersion,
 						ModLoader:        runtime.ModLoader,
 						VersionID:        c.String("version-id"),
-					})
+					}, jsonMode)
+					results = append(results, result)
 					if len(result.Errors) > 0 {
-						return cli.Exit(result.Errors[0].Reason, 1)
+						report.Errors = append(report.Errors, result.Errors[0].Reason)
+						failureReasons = append(failureReasons, result.Errors[0].Reason)
+						continue
 					}
 					if result.Result.Skipped {
-						return cli.Exit(result.Result.Reason, 1)
+						report.Skipped = append(report.Skipped, InstallSkipped{Target: entry.Target, Reason: result.Result.Reason})
+						failureReasons = append(failureReasons, result.Result.Reason)
 					}
-					results = append(results, result)
 				}
-				if len(results) == 1 {
-					return r.write(c, results[0], writeInstallResult)
+				if jsonMode {
+					if err := writeInstallReportJSON(r.stdout, report); err != nil {
+						return err
+					}
+				} else if len(results) == 1 {
+					if err := r.write(c, results[0], writeInstallResult); err != nil {
+						return err
+					}
+				} else if err := r.write(c, results, writeInstallResults); err != nil {
+					return err
 				}
-				return r.write(c, results, writeInstallResults)
+				if len(failureReasons) > 0 {
+					return cli.Exit(strings.Join(failureReasons, "; "), 1)
+				}
+				return nil
 			})
 		},
 	}
@@ -298,7 +366,7 @@ func (r runner) listCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			if err := validateModsWorkDir(runtime.TargetModsDir, c.Bool("force")); err != nil {
+			if err := validateModsWorkDir(runtime.TargetModsDir, c.Bool("force"), runtime.DirExplicit); err != nil {
 				return err
 			}
 			return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
@@ -327,7 +395,7 @@ func (r runner) removeCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			if err := validateModsWorkDir(runtime.TargetModsDir, c.Bool("force")); err != nil {
+			if err := validateModsWorkDir(runtime.TargetModsDir, c.Bool("force"), runtime.DirExplicit); err != nil {
 				return err
 			}
 			targets := normalizedArgs(c.Args().Slice())
@@ -382,13 +450,14 @@ func (r runner) cacheCommand() *cli.Command {
 }
 
 func (r runner) withService(c *cli.Context, runtime runtimeInput, fn func(context.Context, *appcore.Service) error) error {
+	cfg, _ := loadUserConfig()
 	overrides := appcore.ConfigOverrides{}
-	if c.IsSet("curseforge-api-key") {
-		overrides.CurseForgeAPIKey = c.String("curseforge-api-key")
+	if key := firstNonEmptyString(c.String("curseforge-api-key"), cfg.CurseForgeAPIKey); key != "" {
+		overrides.CurseForgeAPIKey = key
 		overrides.HasCurseForgeAPIKey = true
 	}
-	if c.IsSet("modrinth-api-key") {
-		overrides.ModrinthAPIKey = c.String("modrinth-api-key")
+	if key := firstNonEmptyString(c.String("modrinth-api-key"), cfg.ModrinthAPIKey); key != "" {
+		overrides.ModrinthAPIKey = key
 		overrides.HasModrinthAPIKey = true
 	}
 	svc := appcore.New(appcore.Options{
@@ -418,17 +487,53 @@ func (r runner) runtimeInput(c *cli.Context, targetCurrentDir bool) (runtimeInpu
 	if err != nil {
 		return runtimeInput{}, err
 	}
+	cfg, _ := loadUserConfig()
 	runtime := runtimeInput{
 		WorkDir:          wd,
 		MinecraftVersion: strings.TrimSpace(c.String("mc-version")),
 		ModLoader:        normalizeLoader(c.String("loader")),
 		CacheDir:         strings.TrimSpace(c.String("cache-dir")),
 	}
-	if targetCurrentDir {
+	// Config file values are the lowest-priority fallback above auto-detection,
+	// but below explicit flags and environment variables.
+	if runtime.MinecraftVersion == "" {
+		runtime.MinecraftVersion = strings.TrimSpace(cfg.MinecraftVersion)
+	}
+	if runtime.ModLoader == "" {
+		runtime.ModLoader = normalizeLoader(cfg.Loader)
+	}
+	if runtime.CacheDir == "" {
+		runtime.CacheDir = strings.TrimSpace(cfg.CacheDir)
+	}
+
+	dir := firstNonEmptyString(c.String("dir"), cfg.MinecraftDir)
+	if dir != "" {
+		modsDir, info, ok, err := locateRuntimeDir(dir)
+		if err != nil {
+			return runtimeInput{}, err
+		}
+		if ok {
+			runtime.TargetModsDir = modsDir
+			runtime.WorkDir = modsDir
+			runtime.DirExplicit = true
+			if runtime.MinecraftVersion == "" {
+				runtime.MinecraftVersion = strings.TrimSpace(info.MinecraftVersion)
+			}
+			if runtime.ModLoader == "" {
+				runtime.ModLoader = normalizeLoader(info.ModLoader)
+			}
+		}
+	}
+
+	if targetCurrentDir && runtime.TargetModsDir == "" {
 		runtime.TargetModsDir = wd
 	}
 	if runtime.MinecraftVersion == "" || runtime.ModLoader == "" {
-		inferred := inferRuntimeFromModsParent(wd)
+		inferDir := runtime.TargetModsDir
+		if inferDir == "" {
+			inferDir = wd
+		}
+		inferred := inferRuntimeFromModsParent(inferDir)
 		if runtime.MinecraftVersion == "" {
 			runtime.MinecraftVersion = inferred.MinecraftVersion
 		}
@@ -440,6 +545,84 @@ func (r runner) runtimeInput(c *cli.Context, targetCurrentDir bool) (runtimeInpu
 		return runtimeInput{}, fmt.Errorf("invalid loader %q: expected fabric, forge, or neoforge", runtime.ModLoader)
 	}
 	return runtime, nil
+}
+
+// locateRuntimeDir resolves a user-supplied --dir value into a concrete mods
+// directory, accepting either the mods folder itself, a version directory that
+// contains a mods/ folder, or a Minecraft game / Prism instance directory. It
+// also returns the detected version/loader when available.
+func locateRuntimeDir(dir string) (string, structs.VersionInfo, bool, error) {
+	dir = cleanAbsPath(dir)
+	if dir == "" {
+		return "", structs.VersionInfo{}, false, nil
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", structs.VersionInfo{}, false, fmt.Errorf("--dir path is not accessible: %s", dir)
+	}
+	if !info.IsDir() {
+		return "", structs.VersionInfo{}, false, fmt.Errorf("--dir path is not a directory: %s", dir)
+	}
+
+	if filepath.Base(dir) == "mods" {
+		return dir, inferVersionInfoForResolvedModsDir(dir), true, nil
+	}
+	if modsDir := filepath.Join(dir, "mods"); isDirectory(modsDir) {
+		return modsDir, inferVersionInfoForResolvedModsDir(modsDir), true, nil
+	}
+
+	for _, gameDir := range candidateGameDirs(dir) {
+		versions := appcore.New(appcore.Options{}).LoadVersionsFromDisk(gameDir)
+		for _, version := range versions {
+			if !appcore.ValidMinecraftInstance(version) {
+				continue
+			}
+			versionDir := minecraft.VersionDirPath(gameDir, version)
+			if versionDir == "" {
+				continue
+			}
+			return filepath.Join(versionDir, "mods"), version, true, nil
+		}
+	}
+
+	return "", structs.VersionInfo{}, false, fmt.Errorf(
+		"no mods directory found under %s: expected a mods folder, a version directory containing mods/, or a Minecraft game directory",
+		dir,
+	)
+}
+
+func candidateGameDirs(dir string) []string {
+	candidates := make([]string, 0, 2)
+	if nested := filepath.Join(dir, minecraft.PrismInstanceDotMinecraftDirName); isDirectory(nested) {
+		candidates = append(candidates, nested)
+	}
+	return append(candidates, dir)
+}
+
+func isDirectory(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// inferVersionInfoForResolvedModsDir best-effort infers the Minecraft version and
+// loader for a mods directory, falling back to reading a sibling manifest.
+func inferVersionInfoForResolvedModsDir(modsDir string) structs.VersionInfo {
+	if info, ok := inferVersionInfoForModsDir(modsDir); ok {
+		return info
+	}
+	if info, ok := inferVersionInfoFromDir(filepath.Dir(modsDir)); ok {
+		return info
+	}
+	return structs.VersionInfo{}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func inferRuntimeFromModsParent(workDir string) runtimeInput {
@@ -492,7 +675,7 @@ func candidateMinecraftRootsForModsDir(modsDir string) []string {
 	candidates := make([]string, 0, 4)
 	if gameDir != "." && gameDir != string(filepath.Separator) {
 		prismRoots := []string{filepath.Dir(gameDir)}
-		if filepath.Base(gameDir) == minecraft.PrismInstanceGameDirName {
+		if filepath.Base(gameDir) == minecraft.PrismInstanceDotMinecraftDirName {
 			prismRoots = append([]string{filepath.Dir(filepath.Dir(gameDir))}, prismRoots...)
 		}
 		for _, root := range prismRoots {
@@ -667,7 +850,7 @@ func requireVersionLoader(runtime runtimeInput) error {
 	return nil
 }
 
-func validateModsWorkDir(dir string, force bool) error {
+func validateModsWorkDir(dir string, force bool, dirExplicit bool) error {
 	if strings.TrimSpace(dir) == "" {
 		return errors.New("empty mods directory")
 	}
@@ -678,7 +861,7 @@ func validateModsWorkDir(dir string, force bool) error {
 	if !info.IsDir() {
 		return fmt.Errorf("mods path is not a directory: %s", dir)
 	}
-	if !force && filepath.Base(filepath.Clean(dir)) != "mods" {
+	if !force && !dirExplicit && filepath.Base(filepath.Clean(dir)) != "mods" {
 		return errors.New("current directory must be a mods directory; cd into your instance's mods folder or pass --force")
 	}
 	return nil
@@ -699,9 +882,9 @@ func validLoader(loader string) bool {
 
 func cacheFilePath(c *cli.Context) (string, error) {
 	if cacheDir := strings.TrimSpace(c.String("cache-dir")); cacheDir != "" {
-		return filepath.Join(cacheDir, database.CacheFileName), nil
+		return filepath.Join(cacheDir, storage.CacheFileName), nil
 	}
-	return database.DefaultCachePath()
+	return storage.DefaultCachePath()
 }
 
 func removeMatchingMods(modsDir string, mods []structs.ModInfo, targets []string, dryRun bool) ([]removedMod, error) {

@@ -1,0 +1,6 @@
+# Build output
+/mod-downloader-cli
+/mod-downloader-cli.exe
+
+# Local scratch files
+*.log

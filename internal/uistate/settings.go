@@ -1,0 +1,155 @@
+package uistate
+
+import (
+	"math"
+
+	"github.com/link-fgfgui/mod-downloader-core/appcore"
+	"github.com/link-fgfgui/mod-downloader-core/configs"
+)
+
+// Animation mode identifiers and bounds mirrored from useAnimationSettings.ts.
+const (
+	AnimationModeOff     = "off"
+	AnimationModeVuetify = "vuetify"
+	AnimationModeGSAP    = "gsap"
+
+	DefaultAnimationMode               = AnimationModeVuetify
+	DefaultAnimationDurationMultiplier = 1.0
+	MinAnimationDurationMultiplier     = 0.1
+	MaxAnimationDurationMultiplier     = 3.0
+
+	// AnimationSwitchingEnabled mirrors the frontend flag that currently pins
+	// every stored animation mode back to the default (GUI parity: switching is
+	// disabled, but the value is still persisted so configs stay compatible).
+	AnimationSwitchingEnabled = false
+)
+
+// Preferred release types.
+const (
+	ReleaseTypeRelease = "release"
+	ReleaseTypeBeta    = "beta"
+	ReleaseTypeAlpha   = "alpha"
+)
+
+// NormalizeAnimationMode mirrors normalizeAnimationMode. When switching is
+// disabled (current GUI behaviour) every value collapses to the default mode.
+func NormalizeAnimationMode(value string, legacyEnabled *bool) string {
+	if !AnimationSwitchingEnabled {
+		return DefaultAnimationMode
+	}
+	switch value {
+	case AnimationModeOff, "0", "false", "disabled":
+		return AnimationModeOff
+	case AnimationModeVuetify, "1", "true", "enabled", "on":
+		return AnimationModeVuetify
+	case AnimationModeGSAP, "2":
+		return AnimationModeGSAP
+	}
+	if legacyEnabled != nil {
+		if *legacyEnabled {
+			return AnimationModeVuetify
+		}
+		return AnimationModeOff
+	}
+	return DefaultAnimationMode
+}
+
+// NormalizeAnimationDurationMultiplier clamps to [0.1, 3.0] with 1.0 fallback.
+func NormalizeAnimationDurationMultiplier(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
+		return DefaultAnimationDurationMultiplier
+	}
+	return math.Min(MaxAnimationDurationMultiplier, math.Max(MinAnimationDurationMultiplier, value))
+}
+
+// AnimationModeEnabled mirrors animationModeEnabled.
+func AnimationModeEnabled(mode string) bool {
+	return NormalizeAnimationMode(mode, nil) != AnimationModeOff
+}
+
+// SettingsDrafts mirrors the settings store's editable draft fields.
+type SettingsDrafts struct {
+	Theme                       string
+	Language                    string
+	AnimationMode               string
+	AnimationDurationMultiplier float64
+	SimpleMode                  bool
+	AutoScanUnusedDependencies  bool
+	MCIMEnabled                 bool
+	PreferredReleaseType        string
+	FileConcurrency             int
+	ConcurrentDownloads         int
+	AdaptiveFileConcurrency     bool
+	TargetDownloadRateMiB       float64
+	VerifySHA1                  bool
+	RequestsPerSecond           int
+	CurseforgeKey               KeyDraft
+	ModrinthKey                 KeyDraft
+}
+
+// LoadSettingsDrafts mirrors settings.load(): derive drafts from the view,
+// clamping every numeric field into its documented range.
+func LoadSettingsDrafts(view appcore.SettingsView) SettingsDrafts {
+	return SettingsDrafts{
+		Theme:                       defaultIfEmpty(view.Theme, string(configs.ThemeDark)),
+		Language:                    defaultIfEmpty(view.Language, "system"),
+		AnimationMode:               NormalizeAnimationMode(view.AnimationMode, boolPtr(view.AnimationEnabled)),
+		AnimationDurationMultiplier: NormalizeAnimationDurationMultiplier(view.AnimationDurationMultiplier),
+		SimpleMode:                  view.SimpleMode,
+		AutoScanUnusedDependencies:  view.AutoScanUnusedDependencies,
+		MCIMEnabled:                 view.MCIMEnabled,
+		PreferredReleaseType:        defaultIfEmpty(view.PreferredReleaseType, ReleaseTypeRelease),
+		FileConcurrency:             clampInt(view.FileConcurrency, configs.MinFileConcurrency, configs.MaxFileConcurrency, configs.DefaultFileConcurrency),
+		ConcurrentDownloads:         clampInt(view.ConcurrentDownloads, configs.MinConcurrentDownloads, configs.MaxConcurrentDownloads, configs.DefaultConcurrentDownloads),
+		AdaptiveFileConcurrency:     view.AdaptiveFileConcurrency,
+		TargetDownloadRateMiB:       clampRate(view.TargetDownloadRateMiB),
+		VerifySHA1:                  view.VerifySHA1,
+		RequestsPerSecond:           clampInt(view.RequestsPerSecond, configs.MinRequestsPerSecond, configs.MaxRequestsPerSecond, 0),
+	}
+}
+
+// ValidateNetworkSettings clamps and normalizes the network draft values
+// (mirrors the documented ranges in Phase 7.2, including the 1-decimal
+// precision requirement for the target rate).
+func ValidateNetworkSettings(d SettingsDrafts) appcore.SaveNetworkSettingsRequest {
+	rate := math.Round(clampRate(d.TargetDownloadRateMiB)*10) / 10
+	return appcore.SaveNetworkSettingsRequest{
+		FileConcurrency:         clampInt(d.FileConcurrency, configs.MinFileConcurrency, configs.MaxFileConcurrency, configs.DefaultFileConcurrency),
+		ConcurrentDownloads:     clampInt(d.ConcurrentDownloads, configs.MinConcurrentDownloads, configs.MaxConcurrentDownloads, configs.DefaultConcurrentDownloads),
+		AdaptiveFileConcurrency: d.AdaptiveFileConcurrency,
+		TargetDownloadRateMiB:   rate,
+		VerifySHA1:              d.VerifySHA1,
+		RequestsPerSecond:       clampInt(d.RequestsPerSecond, configs.MinRequestsPerSecond, configs.MaxRequestsPerSecond, 0),
+	}
+}
+
+func clampRate(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
+		return configs.DefaultTargetDownloadRateMiB
+	}
+	return math.Min(configs.MaxTargetDownloadRateMiB, math.Max(configs.MinTargetDownloadRateMiB, value))
+}
+
+func clampInt(value, min, max, fallback int) int {
+	if value == 0 && min > 0 {
+		// A zero value on a positive-minimum field is treated as "unset" and
+		// falls back to the documented default (matches the GUI's `?? default`).
+		return fallback
+	}
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func defaultIfEmpty(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func boolPtr(v bool) *bool { return &v }
