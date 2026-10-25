@@ -11,9 +11,9 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
 	"github.com/link-fgfgui/mod-downloader-core/logging"
 	"github.com/link-fgfgui/mod-downloader-core/storage"
+	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/tuihost"
@@ -88,7 +88,11 @@ func prepareLogging(level slog.Level) {
 	if level == 0 {
 		level = slog.LevelInfo
 	}
-	if err := logging.Configure(logging.Options{Level: level, NoStderr: true}); err != nil {
+	if err := logging.Configure(logging.Options{
+		Level:    level,
+		NoStderr: true,
+		FilePath: logging.DefaultPath(),
+	}); err != nil {
 		_ = logging.Configure(logging.Options{Disabled: true, NoStderr: true})
 	}
 }
@@ -183,7 +187,7 @@ type App struct {
 	mc         uistate.MinecraftState
 	search     uistate.SearchState
 	queueState uistate.QueueState
-	settings   appcore.SettingsView
+	settings   appstructs.SettingsView
 	stats      storage.UsageStats
 
 	dialogs []*dialog
@@ -236,7 +240,7 @@ type App struct {
 
 // New builds the shell around an unstarted host.
 func New(host *tuihost.Host) *App {
-	prefs := appcore.AppPreferences{}
+	prefs := appstructs.AppPreferences{}
 	if host.Core() != nil {
 		prefs = host.Service().GetPreferences()
 	}
@@ -785,7 +789,7 @@ func (a *App) connectorLabel() string {
 }
 
 // applySettings stores the settings snapshot and re-applies language/theme.
-func (a *App) applySettings(view appcore.SettingsView) {
+func (a *App) applySettings(view appstructs.SettingsView) {
 	a.settings = view
 	i18n.Apply(view.Language)
 	restyle := false

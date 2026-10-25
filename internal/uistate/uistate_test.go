@@ -3,7 +3,6 @@ package uistate
 import (
 	"testing"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
 	"github.com/link-fgfgui/mod-downloader-core/models"
 	"github.com/link-fgfgui/mod-downloader-core/storage"
 	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
@@ -316,7 +315,7 @@ func TestAPIKeySentinelResolution(t *testing.T) {
 }
 
 func TestSettingsDraftClamps(t *testing.T) {
-	view := appcore.SettingsView{
+	view := appstructs.SettingsView{
 		FileConcurrency:       99,
 		ConcurrentDownloads:   0,
 		TargetDownloadRateMiB: 9.9,

@@ -3,8 +3,8 @@ package uistate
 import (
 	"math"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
 	"github.com/link-fgfgui/mod-downloader-core/configs"
+	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
 )
 
 // Animation mode identifiers and bounds mirrored from useAnimationSettings.ts.
@@ -89,7 +89,7 @@ type SettingsDrafts struct {
 
 // LoadSettingsDrafts mirrors settings.load(): derive drafts from the view,
 // clamping every numeric field into its documented range.
-func LoadSettingsDrafts(view appcore.SettingsView) SettingsDrafts {
+func LoadSettingsDrafts(view appstructs.SettingsView) SettingsDrafts {
 	return SettingsDrafts{
 		Theme:                       defaultIfEmpty(view.Theme, string(configs.ThemeDark)),
 		Language:                    defaultIfEmpty(view.Language, "system"),
@@ -111,9 +111,9 @@ func LoadSettingsDrafts(view appcore.SettingsView) SettingsDrafts {
 // ValidateNetworkSettings clamps and normalizes the network draft values
 // (mirrors the documented ranges in Phase 7.2, including the 1-decimal
 // precision requirement for the target rate).
-func ValidateNetworkSettings(d SettingsDrafts) appcore.SaveNetworkSettingsRequest {
+func ValidateNetworkSettings(d SettingsDrafts) appstructs.SaveNetworkSettingsRequest {
 	rate := math.Round(clampRate(d.TargetDownloadRateMiB)*10) / 10
-	return appcore.SaveNetworkSettingsRequest{
+	return appstructs.SaveNetworkSettingsRequest{
 		FileConcurrency:         clampInt(d.FileConcurrency, configs.MinFileConcurrency, configs.MaxFileConcurrency, configs.DefaultFileConcurrency),
 		ConcurrentDownloads:     clampInt(d.ConcurrentDownloads, configs.MinConcurrentDownloads, configs.MaxConcurrentDownloads, configs.DefaultConcurrentDownloads),
 		AdaptiveFileConcurrency: d.AdaptiveFileConcurrency,

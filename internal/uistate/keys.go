@@ -1,6 +1,9 @@
 package uistate
 
-import "github.com/link-fgfgui/mod-downloader-core/appcore"
+import (
+	"github.com/link-fgfgui/mod-downloader-core/appcore"
+	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+)
 
 // APIKeySentinel mirrors the frontend `apiKeyKeepSentinel` and core's constant:
 // passing it keeps the stored key untouched while the other side is being saved.
@@ -33,8 +36,8 @@ func (d KeyDraft) Resolve() string {
 
 // BuildSaveApiKeysRequest mirrors saveApiKeys: each field resolves independently
 // so an untouched key is preserved while the edited one is written.
-func BuildSaveApiKeysRequest(curseforge, modrinth KeyDraft) appcore.SaveApiKeysRequest {
-	return appcore.SaveApiKeysRequest{
+func BuildSaveApiKeysRequest(curseforge, modrinth KeyDraft) appstructs.SaveApiKeysRequest {
+	return appstructs.SaveApiKeysRequest{
 		CurseforgeApiKey: curseforge.Resolve(),
 		ModrinthApiKey:   modrinth.Resolve(),
 	}

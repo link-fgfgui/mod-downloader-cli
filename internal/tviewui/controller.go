@@ -454,7 +454,7 @@ func (a *App) saveSimpleMode(simple bool) {
 	if a.offline {
 		return
 	}
-	view := a.host.Service().SaveSimpleModeSettings(appcore.SaveSimpleModeSettingsRequest{SimpleMode: simple})
+	view := a.host.Service().SaveSimpleModeSettings(appstructs.SaveSimpleModeSettingsRequest{SimpleMode: simple})
 	a.uiUpdate(func() {
 		a.applySettings(view)
 		a.settingsPage().Refresh()
@@ -465,7 +465,7 @@ func (a *App) saveUnusedCleanup(autoScan bool) {
 	if a.offline {
 		return
 	}
-	view := a.host.Service().SaveUnusedDependencyCleanupSettings(appcore.SaveUnusedDependencyCleanupSettingsRequest{AutoScanUnusedDependencies: autoScan})
+	view := a.host.Service().SaveUnusedDependencyCleanupSettings(appstructs.SaveUnusedDependencyCleanupSettingsRequest{AutoScanUnusedDependencies: autoScan})
 	a.uiUpdate(func() {
 		a.applySettings(view)
 		a.settingsPage().Refresh()
@@ -477,7 +477,7 @@ func (a *App) saveMCIM(enabled bool) {
 	if a.offline {
 		return
 	}
-	view := a.host.Service().SaveMCIMSettings(appcore.SaveMCIMSettingsRequest{MCIMEnabled: enabled})
+	view := a.host.Service().SaveMCIMSettings(appstructs.SaveMCIMSettingsRequest{MCIMEnabled: enabled})
 	a.uiUpdate(func() {
 		a.applySettings(view)
 		a.settingsPage().Refresh()
@@ -489,7 +489,7 @@ func (a *App) savePreferredReleaseType(releaseType string) {
 	if a.offline {
 		return
 	}
-	view := a.host.Service().SavePreferredReleaseTypeSettings(appcore.SavePreferredReleaseTypeSettingsRequest{PreferredReleaseType: releaseType})
+	view := a.host.Service().SavePreferredReleaseTypeSettings(appstructs.SavePreferredReleaseTypeSettingsRequest{PreferredReleaseType: releaseType})
 	a.uiUpdate(func() {
 		a.applySettings(view)
 		a.settingsPage().Refresh()
@@ -520,7 +520,7 @@ func (a *App) saveCacheDir(dir string) {
 	})
 }
 
-func (a *App) saveApiKeys(req appcore.SaveApiKeysRequest) {
+func (a *App) saveApiKeys(req appstructs.SaveApiKeysRequest) {
 	if a.offline {
 		return
 	}
