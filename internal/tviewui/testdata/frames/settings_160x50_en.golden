@@ -1,0 +1,50 @@
+┌───────Mod Downloader───────┐Settings                                                                                                                          
+│1 ⌂  Home                   │Configure language, theme, downloads and API keys.                                                                                
+│2 ↓  Download               │╔════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+│3 ☰  Manage                 │║                                                                                                                                ║
+│4 ★  Favorites              │║ ── General ──                                                                                                                  ║
+│5 ⚑  Unpin                  │║                                                                                                                                ║
+│6 ⚙  Settings               │║ Language                System                                                                                                 ║
+│                            │║                                                                                                                                ║
+│                            │║ Theme                   Dark                                                                                                   ║
+│                            │║                                                                                                                                ║
+│                            │║ Release variant         Stable                                                                                                 ║
+│                            │║                                                                                                                                ║
+│                            │║ Simple mode             [ ]                                                                                                    ║
+│                            │║                                                                                                                                ║
+│                            │║ ── Storage & cleanup ──                                                                                                        ║
+│                            │║                                                                                                                                ║
+│                            │║ MC dir                                                                                                                         ║
+│                            │║                                                                                                                                ║
+│                            │║ Cleanup                 [ ]                                                                                                    ║
+│                            │║                                                                                                                                ║
+│                            │║ Cache Directory                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║ ── Downloads and API ──                                                                                                        ║
+│                            │║                                                                                                                                ║
+│                            │║ MCIM                    [ ]                                                                                                    ║
+│                            │║                                                                                                                                ║
+│                            │║ Chunks/file             4                                                                                                      ║
+│                            │║                                                                                                                                ║
+│                            │║ Adaptive chunks         [ ]                                                                                                    ║
+│                            │║                                                                                                                                ║
+│                            │║ Target MiB/s            1                                                                                                      ║
+│                            │║                                                                                                                                ║
+│                            │║ Verify SHA1             [ ]                                                                                                    ║
+│                            │║                                                                                                                                ║
+│                            │║ Concurrent              16                                                                                                     ║
+│                            │║                                                                                                                                ║
+│                            │║ Requests/s              0                                                                                                      ║
+│                            │║                                                                                                                                ║
+│                            │║ ── API keys ──                                                                                                                 ║
+│                            │║                                                                                                                                ║
+│                            │║ CurseForge              CurseForge API Key: Not set                                                                            ║
+│                            │║                                                                                                                                ║
+│                            │║ Modrinth                Modrinth API Key: Not set                                                                              ║
+└────────────────────────────┘║                                                                                                                                ║
+INSTANCE                      ║   Choose Directory     Reset     Choose Directory .minecraft     Save download settings     Save     Clear     Save     Clear  ║
+No instance                   ║                                                                                                                                ║
+— | Fabric                    ║                                                                                                                                ║
+Not configured                ║                                                                                                                                ║
+                              ╚════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+↑↓ Select · tab Select · enter Open · esc Close                                                                                                        [ ↓ 0/0 ]

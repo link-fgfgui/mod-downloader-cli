@@ -58,27 +58,40 @@ by any adapter.
     decimal. Animation switching is disabled, so every stored mode normalizes to
     `vuetify` while still being persisted.
 
-## Shell composition contract (`tui/app.go`)
+## Shell composition contract (`internal/tviewui`)
 
-- `View()` always returns exactly `height` lines, each ≤ `width` display columns
-  (CJK-aware). Layout: 2 top-bar rows + `height-3` main rows + 1 bottom-bar row.
-- Fallback geometry `80x24` renders before the first `tea.WindowSizeMsg`, so the
-  UI appears even when the terminal size cannot be queried.
-- Global keys (no modal capturing input, no focused text field): `1`–`6` / `Tab`
-  / `Shift+Tab` switch views; `t` opens the instance/target switcher; `q` toggles
-  the queue drawer; `Q` clears reminder-only queues; `Esc` closes drawer → top
-  modal → input focus → selection → returns Home.
-- **Instance/target parity** (`tui/target_modal.go`): the top-bar row-2 instance
-  area is a recorded hit region — clicking it opens the switcher, which lists
+- Root layout: `shellLayout` → `Flex` rows [content, 1-row status bar]. Content is
+  a column `Flex`: sidebar (30 / 7 / 0 columns at ≥120 / ≥50 / <50), the
+  `Pages` stack for the six views, and an optional right-side queue dock (width
+  clamped to 28–40). Every frame fills exactly the terminal size.
+- Page contract: `Primitive`, `Refresh`, `Focus`, `HandleKey`, `Hints`, plus
+  optional `OnActivate` / `OnResize` / `Restyle` / `ClearFocus`. Widgets are
+  projections of App state; lists/tables rebuild from one ordered slice and
+  restore the cursor by stable key.
+- Single source of truth: App embeds the `uistate` states plus the core settings
+  and usage-stat snapshots. Views never keep a second copy of business state.
+- Threading: controller methods run in goroutines and submit results through
+  `uiUpdate`; the event pump applies host events and UI tasks in one
+  `QueueUpdate` batch and then redraws. No service call runs on the UI goroutine
+  or inside a draw/key handler.
+- Global keys (no dialog, no focused text field): `1`–`6` switch views; `Tab`
+  moves focus within a page and between queue tabs; `t` opens the
+  instance/target switcher; `q` toggles the queue dock; `Q` clears reminder-only
+  queues; `?` opens help; `Esc` unwinds dialog → dock → page input/selection →
+  Home; `Ctrl+C` performs the graceful stop.
+- **Instance/target parity** (`dialogs_target.go`): the switcher lists
   `GetVersions()` for `SelectVersion`, offers refresh-mod / refresh-versions
-  actions, and lets the user cycle the manual `[MC version | loader]` tuple (which
-  clears the selected instance, matching `minecraft.ts`). When
-  `selectedVersion.ConnectorAvailable` is true, a Connector segment is rendered
-  and both clicking it and the modal row invoke `ToggleConnectorLoader()`.
-- Mouse (cell motion): wheel scrolls the active list; left-click on a top tab
-  switches views; left-click toggles the queue capsule (**right-click** on a
-  reminder-only capsule clears it); list rows support single / `Ctrl`-toggle /
-  `Shift`-range selection.
-- Modals are a LIFO stack; a modal with `CapturesInput()` swallows all keys.
-  Result messages that belong to a modal (versions, pins, favorite lists,
-  dependency restore) are dispatched to the top modal first, then the view.
+  actions, and lets the user cycle the manual `[MC version | loader]` tuple
+  (which clears the selected instance, matching `minecraft.ts`). When
+  `selectedVersion.ConnectorAvailable` is true the Connector segment toggles
+  `ToggleConnectorLoader()`.
+- Dialogs are a LIFO stack of full-screen `Pages` containing a centered bordered
+  primitive. `Esc` closes only the top dialog, background clicks are blocked,
+  and there is no scrim (tview pages are opaque).
+- Mouse: tview-native row/button clicks and wheel scrolling; **right-click** on a
+  reminder-only capsule clears reminders. Multi-selection uses `Space` rather
+  than Ctrl/Shift click.
+- Responsive: Home rebuilds its metric-card columns from the main width and the
+  queue dock reflows on resize. Golden frames cover 6 pages × 5 sizes × en/zh in
+  `internal/tviewui/testdata/frames`; the SimulationScreen matrix asserts every
+  line stays within the terminal bounds.

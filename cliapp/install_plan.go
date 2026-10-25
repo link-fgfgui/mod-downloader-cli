@@ -6,11 +6,16 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/mattn/go-isatty"
+
 	"github.com/link-fgfgui/mod-downloader-core/appcore"
+
+	"github.com/link-fgfgui/mod-downloader-cli/cliapp/progress"
 )
 
 // InstallSkipped records a target that resolved but was not installed.
@@ -121,24 +126,57 @@ func (r runner) writeInstallPlan(plan []InstallPlanEntry, target string) error {
 
 // installWithProgress runs one install while rendering a live download progress
 // line (Phase 5.2). In JSON mode no progress is drawn.
-func (r runner) installWithProgress(ctx context.Context, svc *appcore.Service, req appcore.InstallToDirRequest, jsonMode bool) appcore.InstallWaitResult {
+func (r runner) installWithProgress(ctx context.Context, svc *appcore.Service, req appcore.InstallToDirRequest, jsonMode bool, index, count int, label string, doneBefore, totalAll int64) appcore.InstallWaitResult {
 	if jsonMode {
 		return svc.InstallModToDirAndWait(ctx, req)
 	}
+	reporter := progress.NewAuto(r.stdout, writerIsTerminal(r.stdout))
+	defer reporter.Finish()
+
 	done := make(chan appcore.InstallWaitResult, 1)
 	go func() { done <- svc.InstallModToDirAndWait(ctx, req) }()
 
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ticker := time.NewTicker(120 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case result := <-done:
-			r.clearInstallProgress()
 			return result
 		case <-ticker.C:
-			r.renderInstallProgress(svc)
+			state := svc.GetDownloadQueueState()
+			name := label
+			for _, item := range state.Items {
+				if item.Status == "running" {
+					name = firstNonEmptyStr(item.Title, item.FileName, label)
+					break
+				}
+			}
+			overall := doneBefore + state.BytesComplete
+			if totalAll > 0 && overall > totalAll {
+				overall = totalAll
+			}
+			reporter.Update(progress.State{
+				Index:        index,
+				Count:        count,
+				Name:         name,
+				Done:         state.BytesComplete,
+				Total:        state.TotalBytes,
+				OverallDone:  overall,
+				OverallTotal: totalAll,
+				Speed:        state.BytesPerSecond,
+			})
 		}
 	}
+}
+
+// writerIsTerminal reports whether w is an interactive terminal.
+func writerIsTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fd := f.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
 }
 
 // renderInstallProgress draws a single-line progress bar (overwritten in place).

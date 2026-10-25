@@ -4,3 +4,10 @@
 
 # Local scratch files
 *.log
+/mod-downloader.toml
+/*.sqlite
+/mod-metadata.tmp
+*.test
+
+# Editor / tooling state
+.qoder/

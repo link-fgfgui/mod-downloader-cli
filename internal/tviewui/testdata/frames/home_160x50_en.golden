@@ -1,0 +1,50 @@
+┌───────Mod Downloader───────┐╔═════════════════════════════════════════════════Application status and history═════════════════════════════════════════════════╗
+│1 ⌂  Home                   │║Mod Downloader                                                                                                                  ║
+│2 ↓  Download               │║Application status and history                                                                                                  ║
+│3 ☰  Manage                 │║Review cumulative Mod Downloader activity and the current runtime state.                                                        ║
+│4 ★  Favorites              │║                                                                                                                                ║
+│5 ⚑  Unpin                  │║● History tracking enabled                                                                                                      ║
+│6 ⚙  Settings               │║                                                                                                                                ║
+│                            │║Cumulative activity  Recorded since historical statistics were enabled                                                          ║
+│                            │║0  total                                                                                                                        ║
+│                            │║                                                                                                                                ║
+│                            │║╭───────────────────────────────────────╮  ╭───────────────────────────────────────╮  ╭───────────────────────────────────────╮ ║
+│                            │║│ ↓ 0                                   │  │ ◉ 0                                   │  │ ○ 0                                   │ ║
+│                            │║│ Mods installed                        │  │ Local mods enabled                    │  │ Local mods disabled                   │ ║
+│                            │║╰───────────────────────────────────────╯  ╰───────────────────────────────────────╯  ╰───────────────────────────────────────╯ ║
+│                            │║                                                                                                                                ║
+│                            │║╭───────────────────────────────────────╮  ╭───────────────────────────────────────╮  ╭───────────────────────────────────────╮ ║
+│                            │║│ ✕ 0                                   │  │ ★ 0                                   │  │ ⧉ 0                                   │ ║
+│                            │║│ Local mods deleted                    │  │ Favorites added                       │  │ Modpacks exported                     │ ║
+│                            │║╰───────────────────────────────────────╯  ╰───────────────────────────────────────╯  ╰───────────────────────────────────────╯ ║
+│                            │║                                                                                                                                ║
+│                            │║Instance and target: No instance  MC — | Fabric  Not configured                                                                 ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+│                            │║                                                                                                                                ║
+└────────────────────────────┘║                                                                                                                                ║
+INSTANCE                      ║                                                                                                                                ║
+No instance                   ║                                                                                                                                ║
+— | Fabric                    ║                                                                                                                                ║
+Not configured                ╚════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+                               Refresh   Target                                                                                                                 
+r Refresh dashboard · 1-6 Select · t Instance · q Download Queue                                                                                       [ ↓ 0/0 ]

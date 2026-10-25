@@ -1,0 +1,24 @@
+┌─MD──┐╔════════════════════Application status and history═════════════════════╗
+│⌂    │║Mod Downloader                                                         ║
+│↓    │║Application status and history                                         ║
+│☰    │║Review cumulative Mod Downloader activity and the current runtime      ║
+│★    │║state.                                                                 ║
+│⚑    │║                                                                       ║
+│⚙    │║● History tracking enabled                                             ║
+│     │║                                                                       ║
+│     │║Cumulative activity  Recorded since historical statistics were enabled ║
+│     │║0  total                                                               ║
+│     │║                                                                       ║
+│     │║╭────────────────────────────────╮  ╭────────────────────────────────╮ ║
+│     │║│ ↓ 0                            │  │ ◉ 0                            │ ║
+│     │║│ Mods installed                 │  │ Local mods enabled             │ ║
+│     │║╰────────────────────────────────╯  ╰────────────────────────────────╯ ║
+│     │║                                                                       ║
+│     │║╭────────────────────────────────╮  ╭────────────────────────────────╮ ║
+└─────┘║│ ○ 0                            │  │ ✕ 0                            │ ║
+—      ║│ Local mods disabled            │  │ Local mods deleted             │ ║
+       ║╰────────────────────────────────╯  ╰────────────────────────────────╯ ║
+       ║                                                                       ║
+       ╚═══════════════════════════════════════════════════════════════════════╝
+        Refresh   Target                                                        
+r Refresh dashboard · 1-6 Select · t Instance · q Download Queue       [ ↓ 0/0 ]

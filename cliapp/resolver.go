@@ -261,8 +261,12 @@ const (
 // preferredVersionWithin runs the preferred-version lookup under a deadline.
 func preferredVersionWithin(svc *appcore.Service, project models.ModProject, runtime runtimeInput, timeout time.Duration) (models.ModVersion, versionLookupStatus) {
 	results := make(chan []models.ModVersion, 1)
+	// Capture the seam before starting the goroutine: on timeout the caller
+	// returns while the lookup is still running, and tests may restore the seam
+	// immediately afterwards.
+	lookup := listMatchingVersionsFn
 	go func() {
-		results <- listMatchingVersionsFn(svc, project, runtime.MinecraftVersion, runtime.ModLoader)
+		results <- lookup(svc, project, runtime.MinecraftVersion, runtime.ModLoader)
 	}()
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/link-fgfgui/mod-downloader-cli/cliapp"
-	"github.com/link-fgfgui/mod-downloader-cli/tui"
+	"github.com/link-fgfgui/mod-downloader-cli/internal/tviewui"
 )
 
 // defaultAppVersion mirrors the GUI's version normalization.
@@ -32,7 +32,7 @@ func main() {
 	// No subcommand (or an explicit `tui`) launches the full-screen TUI. Any
 	// other subcommand keeps the existing apt-style CLI workflow.
 	if len(args) == 0 || args[0] == "tui" {
-		if err := tui.Run(context.Background(), tui.Options{
+		if err := tviewui.Run(context.Background(), tviewui.Options{
 			Version:               currentAppVersion(),
 			LoadMinecraftReleases: true,
 		}); err != nil {

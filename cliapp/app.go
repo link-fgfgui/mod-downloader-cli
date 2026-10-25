@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,11 +15,14 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/link-fgfgui/mod-downloader-core/appcore"
+	"github.com/link-fgfgui/mod-downloader-core/logging"
 	"github.com/link-fgfgui/mod-downloader-core/minecraft"
 	"github.com/link-fgfgui/mod-downloader-core/models"
 	"github.com/link-fgfgui/mod-downloader-core/storage"
 	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
 	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+
+	"github.com/link-fgfgui/mod-downloader-cli/cliapp/prompt"
 )
 
 type runner struct {
@@ -67,7 +71,11 @@ func New(stdout, stderr io.Writer) *cli.App {
 	app := &cli.App{
 		Name:  "mod-downloader-cli",
 		Usage: "Search and install Minecraft mods from inside a mods directory",
+		Before: func(c *cli.Context) error {
+			return logging.Configure(logging.Options{Level: cliLogLevel(c)})
+		},
 		Flags: []cli.Flag{
+			verboseFlag(),
 			jsonFlag(),
 			&cli.StringFlag{Name: "mc-version", Aliases: []string{"minecraft-version", "version"}, Usage: "Minecraft version; auto-detected from the current mods path when omitted", EnvVars: []string{"MINECRAFT_VERSION"}},
 			&cli.StringFlag{Name: "loader", Usage: "mod loader: fabric, forge, or neoforge; auto-detected from the current mods path when omitted", EnvVars: []string{"MOD_LOADER"}},
@@ -97,9 +105,20 @@ func New(stdout, stderr io.Writer) *cli.App {
 	app.Writer = stdout
 	app.ErrWriter = stderr
 	for _, cmd := range app.Commands {
+		// Accept -v after positional arguments too.
+		cmd.Flags = append(cmd.Flags, verboseFlag())
 		enableTrailingFlags(cmd)
 	}
 	return app
+}
+
+// cliLogLevel maps -v/--verbose to the core log level. The CLI stays quiet by
+// default (warnings and errors only); -v enables debug logging.
+func cliLogLevel(c *cli.Context) slog.Level {
+	if c != nil && c.Bool("verbose") {
+		return slog.LevelDebug
+	}
+	return slog.LevelWarn
 }
 
 func (r runner) searchCommand() *cli.Command {
@@ -263,14 +282,20 @@ func (r runner) installCommand() *cli.Command {
 			if err := validateModsWorkDir(runtime.TargetModsDir, c.Bool("force"), runtime.DirExplicit); err != nil {
 				return err
 			}
-			targets, err := ParseInstallTargets(projectRefs(c), "")
-			if err != nil {
-				return err
+			refs := projectRefs(c)
+			platformFilter := normalizePlatformName(c.String("platform"))
+			wizardMode := len(refs) == 0 && interactiveAllowed(c) && !c.Bool("json") && !c.Bool("dry-run")
+			targets := []InstallTarget{}
+			if !wizardMode {
+				var err error
+				targets, err = ParseInstallTargets(refs, "")
+				if err != nil {
+					return err
+				}
 			}
 			if err := versionIDExclusivity(len(targets), c.String("version-id")); err != nil {
 				return err
 			}
-			platformFilter := normalizePlatformName(c.String("platform"))
 			return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
 				if timeout := c.Duration("timeout"); timeout > 0 {
 					var cancel context.CancelFunc
@@ -278,6 +303,16 @@ func (r runner) installCommand() *cli.Command {
 					defer cancel()
 				}
 				interactive := interactiveAllowed(c)
+				if wizardMode {
+					wizardTargets, wizardErr := r.runInstallWizard(ctx, svc, runtime, platformFilter)
+					if wizardErr != nil {
+						if errors.Is(wizardErr, prompt.ErrCanceled) {
+							return cli.Exit("canceled", 130)
+						}
+						return wizardErr
+					}
+					targets = wizardTargets
+				}
 
 				// Phase 2: resolve every target to exactly one project.
 				plan := make([]InstallPlanEntry, 0, len(targets))
@@ -312,7 +347,14 @@ func (r runner) installCommand() *cli.Command {
 				results := make([]appcore.InstallWaitResult, 0, len(plan))
 				report := InstallReport{Targets: targetRaws(plan), Resolved: plan}
 				failureReasons := []string{}
+				totalBytes := int64(0)
 				for _, entry := range plan {
+					if entry.FileSize > 0 {
+						totalBytes += entry.FileSize
+					}
+				}
+				doneBytes := int64(0)
+				for i, entry := range plan {
 					result := r.installWithProgress(ctx, svc, appcore.InstallToDirRequest{
 						ProjectID:        entry.Project.ID,
 						Project:          entry.Project,
@@ -320,7 +362,8 @@ func (r runner) installCommand() *cli.Command {
 						MinecraftVersion: runtime.MinecraftVersion,
 						ModLoader:        runtime.ModLoader,
 						VersionID:        c.String("version-id"),
-					}, jsonMode)
+					}, jsonMode, i+1, len(plan), firstNonEmptyStr(entry.Project.Title, entry.Project.Slug, entry.Project.ID), doneBytes, totalBytes)
+					doneBytes += entry.FileSize
 					results = append(results, result)
 					if len(result.Errors) > 0 {
 						report.Errors = append(report.Errors, result.Errors[0].Reason)
@@ -470,6 +513,7 @@ func (r runner) withService(c *cli.Context, runtime runtimeInput, fn func(contex
 			CacheDir:         runtime.CacheDir,
 			NoConfigFile:     true,
 		},
+		LogLevel: cliLogLevel(c),
 	})
 	ctx := c.Context
 	if ctx == nil {
@@ -759,6 +803,10 @@ func cleanAbsPath(path string) string {
 
 func jsonFlag() cli.Flag {
 	return &cli.BoolFlag{Name: "json", Usage: "write structured JSON output"}
+}
+
+func verboseFlag() cli.Flag {
+	return &cli.BoolFlag{Name: "verbose", Aliases: []string{"v"}, Usage: "enable debug logging"}
 }
 
 func (r runner) write(c *cli.Context, value any, human func(io.Writer, any) error) error {

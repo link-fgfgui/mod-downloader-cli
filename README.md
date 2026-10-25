@@ -33,6 +33,16 @@ For local development you can also run the CLI directly:
 go run ./cmd/mod-downloader-cli --help
 ```
 
+## Logging
+
+The CLI is quiet by default: only warnings and errors reach stderr. Pass
+`-v` / `--verbose` (before or after the subcommand) to enable debug logging.
+
+The full-screen TUI treats the terminal as unavailable for logs, so log lines
+never corrupt the screen. It writes info-level records to `mod-downloader.log`
+in the working directory; debug logging stays off. Set
+`[logging] enabled=false` in `mod-downloader.toml` to disable the file entirely.
+
 ## Quick Start
 
 Open an instance's `mods` directory:
@@ -59,6 +69,46 @@ Launch the full-screen TUI (no subcommand, or `tui`):
 mod-downloader-cli
 mod-downloader-cli tui
 ```
+
+The TUI mirrors the desktop app: a left navigation sidebar (Home / Download /
+Manage / Favorites / Unpin / Settings), the instance and target selector at the
+bottom-left, a single status bar, and a download-queue dock on the right. The
+sidebar collapses to icons between 50 and 119 columns and is hidden below 50
+columns; `1`-`6` still switch views. `t` opens the instance selector, `q` toggles
+the queue dock, `?` shows the key map, and `Esc` unwinds dialogs, selections and
+navigation in that order. `Tab` moves focus between a page's search field, list
+and panes; the queue dock uses `Tab`/arrow keys to switch between its Downloads
+and Optional tabs. Lists, tables, buttons and the sidebar support the mouse:
+click a row to select it, click a button to activate it, and use the wheel to
+scroll. Dialogs are centered tview pages; click their buttons but press `Esc` to
+close them (clicking outside does not dismiss a dialog).
+
+The file picker is a path input rather than a tree: type a path (with `~`,
+`$HOME` or `$PWD` expansion) and press `Tab` once for the common prefix, again
+to list candidates; `Ctrl+S` or `Enter` confirms. Invalid directories are
+reported inside the dialog so it stays open.
+
+| Key | Action |
+| --- | --- |
+| `1`-`6` | Switch view (Home, Download, Manage, Favorites, Unpin, Settings) |
+| `/` | Focus the Download or Manage search field |
+| `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` | Move the list or table cursor |
+| `Space` | Toggle the current row's multi-selection |
+| `Enter` | Open/activate the current row |
+| `e`/`d`/`i` | Manage: enable, disable, invert selection |
+| `x` | Delete the selection (Manage) or remove favorites |
+| `S` | Manage: scan unused dependencies |
+| `v` | Open the version list for the current mod |
+| `f` | Add the selection to favorites |
+| `r` | Refresh the current page |
+| `q` / `Q` | Toggle the queue dock / clear optional-dependency reminders |
+| `t` / `?` | Instance and target selector / keyboard help |
+| `Esc` | Close dialog, clear selection, then return Home |
+| `Ctrl+C` | Quit |
+
+Settings are saved as soon as a control changes (language, theme, release
+variant, cleanup, cache/Minecraft directory, MCIM, network fields and API
+keys); the language switch rebuilds every widget even inside the form.
 
 Install a mod from inside an instance's `mods` directory:
 
@@ -208,6 +258,11 @@ mod-downloader-cli install [flags] <project...>
 mod-downloader-cli i       [flags] <project...>
 ```
 
+With no project arguments on a terminal, `install` starts an interactive wizard:
+confirm the instance/target, type a search term, pick one or more results with
+`Space`, then confirm the plan. `Esc` cancels with exit code 130. The wizard is
+skipped for `--json`, `--dry-run`, `--yes` and `--no-input`.
+
 By default the current directory must be named `mods`. This is intentional so
 downloads do not accidentally land in the wrong folder. Pass `--force` to allow
 installing into another current directory.
@@ -234,15 +289,15 @@ guidance instead of silently bypassing version resolution.
 **Resolution pipeline**
 
 1. Exact lookup on the prefixed platform, or concurrently across both platforms.
-2. A single hit installs directly; multiple hits open the interactive selector
-   (TTY only) unless `--platform` resolves the ambiguity, in which case the
-   filter wins, and otherwise Modrinth is preferred with a stderr notice.
-3. No exact hit falls back to a keyword search; results are offered in the
-   interactive selector. In non-interactive mode this is a hard error (never a
-   hang) telling you to pass an exact slug or prefixed ID.
-4. Every candidate's real `modid`, compatible version, file size and local
-   install state are resolved on background workers while the selector renders,
-   and are refreshed in-place as answers arrive.
+2. A single hit installs directly; multiple hits open a create-vite-style
+   `Select` prompt (TTY only) unless `--platform` resolves the ambiguity, in
+   which case the filter wins, and otherwise Modrinth is preferred with a
+   stderr notice.
+3. No exact hit falls back to a keyword search; results are offered in a
+   filterable multi-select prompt. In non-interactive mode this is a hard error
+   (never a hang) telling you to pass an exact slug or prefixed ID.
+4. Downloads render a single live line with an overall progress bar, the current
+   file, `i/N`, and speed. Non-TTY output stays plain; `--json` stays silent.
 
 **Flags**
 

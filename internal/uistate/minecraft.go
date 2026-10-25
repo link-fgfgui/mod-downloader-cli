@@ -61,6 +61,12 @@ func (s MinecraftState) EnsureSelectedModsLoadedNeeded() bool {
 	return key != "" && key != s.InitializedSelectedModsKey
 }
 
+// MarkSelectedModsLoaded records that the current instance's mods are loaded,
+// breaking the refresh/event feedback loop.
+func (s *MinecraftState) MarkSelectedModsLoaded() {
+	s.InitializedSelectedModsKey = s.SelectedModsKey()
+}
+
 // HasSelectedInstance mirrors hasSelectedInstance.
 func (s MinecraftState) HasSelectedInstance() bool {
 	return s.SelectedVersion != nil && (s.SelectedVersion.Name != "" || s.SelectedVersion.ID != "")

@@ -1,0 +1,30 @@
+┌─MD──┐Settings                                                                                     
+│⌂    │Configure language, theme, downloads and API keys.                                           
+│↓    │╔═══════════════════════════════════════════════════════════════════════════════════════════╗
+│☰    │║                                                                                           ║
+│★    │║ ── General ──                                                                             ║
+│⚑    │║                                                                                           ║
+│⚙    │║ Language                System                                                            ║
+│     │║                                                                                           ║
+│     │║ Theme                   Dark                                                              ║
+│     │║                                                                                           ║
+│     │║ Release variant         Stable                                                            ║
+│     │║                                                                                           ║
+│     │║ Simple mode             [ ]                                                               ║
+│     │║                                                                                           ║
+│     │║ ── Storage & cleanup ──                                                                   ║
+│     │║                                                                                           ║
+│     │║ MC dir                                                                                    ║
+│     │║                                                                                           ║
+│     │║ Cleanup                 [ ]                                                               ║
+│     │║                                                                                           ║
+│     │║ Cache Directory                                                                           ║
+│     │║                                                                                           ║
+│     │║ ── Downloads and API ──                                                                   ║
+└─────┘║                                                                                           ║
+—      ║ MCIM                    [ ]                                                               ║
+       ║                                                                                           ║
+       ║ Chunks/file             4                                                                 ║
+       ║                                                                                           ║
+       ║ Adaptive chunks         [ ]                                                               ║
+↑↓ Select · tab Select · enter Open · esc Close                                            [ ↓ 0/0 ]
