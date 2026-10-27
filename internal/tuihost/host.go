@@ -76,6 +76,12 @@ type Host struct {
 	server *httpserver.Server
 	cfg    *configs.Config
 
+	// startMu serializes Start and Shutdown so a second Start cannot replace a
+	// running core (or leak its HTTP server).
+	startMu sync.Mutex
+	// startCore is replaceable in tests to exercise startup failures.
+	startCore func(context.Context) (*appcore.Service, error)
+
 	mu           sync.Mutex
 	sink         EventSink
 	serverNotice string
@@ -83,13 +89,15 @@ type Host struct {
 
 // New builds the host without starting it.
 func New(opts Options) *Host {
-	return &Host{
+	h := &Host{
 		version:               normalizeVersion(opts.Version),
 		loadMinecraftReleases: opts.LoadMinecraftReleases,
 		config:                opts.Config,
 		logLevel:              opts.LogLevel,
 		logToFileOnly:         opts.LogToFileOnly,
 	}
+	h.startCore = h.startCoreDefault
+	return h
 }
 
 // normalizeVersion mirrors currentAppVersion(): trim and fall back to "dev".
@@ -119,28 +127,33 @@ func (h *Host) emit(kind EventKind, payload any) {
 }
 
 // Start creates and starts the core service, then starts the HTTP server. A
-// listen failure is logged and surfaced as a non-fatal notice.
+// listen failure is logged and surfaced as a non-fatal notice. Calling Start on
+// an already-started host is a no-op so callers cannot replace a running core.
 func (h *Host) Start(ctx context.Context) error {
-	core := appcore.New(appcore.Options{
-		Config:                h.config,
-		Runtime:               appRuntimeOptions(),
-		Version:               h.version,
-		LoadMinecraftReleases: h.loadMinecraftReleases,
-		OnEvent:               h.emitCoreEvent,
-		LogLevel:              h.logLevel,
-		LogToFileOnly:         h.logToFileOnly,
-	})
-	h.mu.Lock()
-	h.core = core
-	h.mu.Unlock()
+	h.startMu.Lock()
+	defer h.startMu.Unlock()
+	if h.Started() {
+		return nil
+	}
 
-	if err := core.Startup(ctx); err != nil {
+	core, err := h.startCore(ctx)
+	if core != nil {
 		h.mu.Lock()
 		h.cfg = core.Config()
 		h.mu.Unlock()
+	}
+	if err != nil {
+		if core != nil {
+			// Startup already tears down partially initialized resources; Close
+			// is called again defensively and is a no-op when there is nothing
+			// to do.
+			core.Close()
+		}
 		return err
 	}
+
 	h.mu.Lock()
+	h.core = core
 	h.cfg = core.Config()
 	h.mu.Unlock()
 
@@ -157,6 +170,25 @@ func (h *Host) Start(ctx context.Context) error {
 	return nil
 }
 
+// startCoreDefault creates and starts a core service. It returns the service
+// even when Startup fails so Start can surface the loaded config and close the
+// partially initialized resources.
+func (h *Host) startCoreDefault(ctx context.Context) (*appcore.Service, error) {
+	core := appcore.New(appcore.Options{
+		Config:                h.config,
+		Runtime:               appRuntimeOptions(),
+		Version:               h.version,
+		LoadMinecraftReleases: h.loadMinecraftReleases,
+		OnEvent:               h.emitCoreEvent,
+		LogLevel:              h.logLevel,
+		LogToFileOnly:         h.logToFileOnly,
+	})
+	if err := core.Startup(ctx); err != nil {
+		return core, err
+	}
+	return core, nil
+}
+
 // appRuntimeOptions mirrors the GUI's default cache dir resolution.
 func appRuntimeOptions() appcore.RuntimeOptions {
 	dir, err := os.Getwd()
@@ -167,29 +199,30 @@ func appRuntimeOptions() appcore.RuntimeOptions {
 	return appcore.RuntimeOptions{DefaultCacheDir: dir}
 }
 
-// Core returns the shared core service.
+// Core returns the shared core service, or nil before Start succeeds.
 func (h *Host) Core() *appcore.Service {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.core
 }
 
-// Service returns the core, lazily creating it when Startup failed. Controller
-// goroutines call this concurrently, so the cached config is guarded.
+// Started reports whether the core service finished Startup.
+func (h *Host) Started() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.core != nil
+}
+
+// Service returns the started core service. It returns nil when Start has not
+// succeeded; callers must not assume a usable service before Started reports
+// true. Controller goroutines call this concurrently, so the cached config is
+// guarded.
 func (h *Host) Service() *appcore.Service {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.core == nil {
-		h.core = appcore.New(appcore.Options{
-			Config:        h.cfg,
-			Runtime:       appRuntimeOptions(),
-			Version:       h.version,
-			OnEvent:       h.emitCoreEvent,
-			LogLevel:      h.logLevel,
-			LogToFileOnly: h.logToFileOnly,
-		})
+	if h.core != nil {
+		h.cfg = h.core.Config()
 	}
-	h.cfg = h.core.Config()
 	return h.core
 }
 
@@ -213,11 +246,15 @@ func (h *Host) ServerNotice() string {
 	return h.serverNotice
 }
 
-// Shutdown stops the server then the core.
+// Shutdown stops the server then the core and clears both handles.
 func (h *Host) Shutdown() {
+	h.startMu.Lock()
+	defer h.startMu.Unlock()
 	h.mu.Lock()
 	server := h.server
 	core := h.core
+	h.server = nil
+	h.core = nil
 	h.mu.Unlock()
 	if server != nil {
 		server.Stop()
@@ -231,31 +268,39 @@ func (h *Host) Shutdown() {
 func (h *Host) emitCoreEvent(event appcore.Event) {
 	switch event.Kind {
 	case appcore.EventSearchModsUpdated:
-		if update, ok := event.Payload.(appstructs.SearchModsUpdate); ok {
-			h.emit(EventSearchModsUpdated, update)
-		}
+		emitPayload[appstructs.SearchModsUpdate](h, event, EventSearchModsUpdated)
 	case appcore.EventDownloadStatesUpdated:
 		h.emit(EventDownloadStatesUpdated, nil)
 	case appcore.EventDownloadQueueUpdated:
-		if state, ok := event.Payload.(appstructs.DownloadQueueState); ok {
-			h.emit(EventDownloadQueueUpdated, state)
-		}
+		emitPayload[appstructs.DownloadQueueState](h, event, EventDownloadQueueUpdated)
 	case appcore.EventDownloadFailed:
-		if failed, ok := event.Payload.(appstructs.DownloadFailedEvent); ok {
-			h.emit(EventDownloadFailed, failed)
-		}
+		emitPayload[appstructs.DownloadFailedEvent](h, event, EventDownloadFailed)
 	case appcore.EventDownloadCompleted:
 		h.emit(EventDownloadCompleted, nil)
 	case appcore.EventMinecraftDirChanged:
-		dir, _ := event.Payload.(string)
-		h.emit(EventMinecraftDirChanged, dir)
+		emitPayload[string](h, event, EventMinecraftDirChanged)
 	case appcore.EventSelectedVersionChanged:
-		if version, ok := event.Payload.(structs.VersionInfo); ok {
-			h.emit(EventSelectedVersionChanged, version)
-		}
+		emitPayload[structs.VersionInfo](h, event, EventSelectedVersionChanged)
 	case appcore.EventUsageStatsUpdated:
 		h.emit(EventUsageStatsUpdated, nil)
+	default:
+		logging.Warn("unhandled core event", "kind", event.Kind, "payloadType", payloadType(event.Payload))
 	}
+}
+
+// emitPayload forwards a typed payload, warning instead of silently dropping
+// events whose contract drifted.
+func emitPayload[T any](h *Host, event appcore.Event, kind EventKind) {
+	payload, ok := event.Payload.(T)
+	if !ok {
+		logging.Warn("invalid core event payload", "kind", event.Kind, "payloadType", payloadType(event.Payload))
+		return
+	}
+	h.emit(kind, payload)
+}
+
+func payloadType(payload any) string {
+	return fmt.Sprintf("%T", payload)
 }
 
 // emitHTTPServerEvent bridges the browser-extension event.
@@ -265,5 +310,7 @@ func (h *Host) emitHTTPServerEvent(event httpserver.Event) {
 	}
 	if update, ok := event.Payload.(appstructs.SearchModsUpdate); ok {
 		h.emit(EventExtensionModsAccepted, update)
+		return
 	}
+	logging.Warn("invalid extension event payload", "name", event.Name, "payloadType", payloadType(event.Payload))
 }

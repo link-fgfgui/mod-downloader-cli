@@ -93,6 +93,11 @@ func (v *settingsPage) OnActivate() { go v.app.refreshSettings() }
 
 func (v *settingsPage) HandleKey(_ *tcell.EventKey) bool { return false }
 
+// DropdownOpen reports whether any settings drop-down is expanded.
+func (v *settingsPage) DropdownOpen() bool {
+	return v.language.IsOpen() || v.theme.IsOpen() || v.release.IsOpen()
+}
+
 // ClearFocus moves focus out of a text field before Esc can leave the page.
 func (v *settingsPage) ClearFocus() bool {
 	item, _ := v.form.GetFocusedItemIndex()
@@ -338,7 +343,9 @@ func (v *settingsPage) floatField(label string) *tview.InputField {
 		if lastChar >= '0' && lastChar <= '9' {
 			return true
 		}
-		return lastChar == '.' && !strings.Contains(text, ".")
+		// tview passes the text including the new rune, so counting is the only
+		// reliable way to allow a single decimal separator.
+		return lastChar == '.' && strings.Count(text, ".") == 1
 	})
 	v.app.theme.styleInput(field)
 	field.SetDoneFunc(func(key tcell.Key) {

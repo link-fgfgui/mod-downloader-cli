@@ -104,7 +104,7 @@ func (v *addFavoriteDialog) render() {
 		return
 	}
 	for _, list := range v.lists {
-		check := checkBox(v.chosen[list.ID])
+		check := checkBoxTagged(v.chosen[list.ID])
 		v.list.AddItem(check+" "+tview.Escape(list.Name), "", 0, nil)
 	}
 	if cursor < 0 || cursor >= len(v.lists) {

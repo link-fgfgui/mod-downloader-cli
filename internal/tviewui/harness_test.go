@@ -38,9 +38,11 @@ func newTestApp(t *testing.T, w, h int) *testApp {
 	return &testApp{t: t, sim: sim, app: a}
 }
 
-// text serialises the simulated screen into plain lines.
-func (h *testApp) text() string {
-	cells, w, hgt := h.sim.GetContents()
+// screenText serialises a simulated screen into plain lines. Wide characters
+// occupy two cells and leave stale content in the continuation cell, so the
+// continuation is skipped instead of being appended to the text.
+func screenText(sim tcell.SimulationScreen) string {
+	cells, w, hgt := sim.GetContents()
 	var b strings.Builder
 	for y := 0; y < hgt; y++ {
 		for x := 0; x < w; {
@@ -52,8 +54,6 @@ func (h *testApp) text() string {
 			} else {
 				b.WriteByte(' ')
 			}
-			// Wide characters occupy two cells; the continuation cell still holds
-			// stale bytes, so skip it instead of printing another rune.
 			step := runewidth.RuneWidth(r)
 			if step < 1 {
 				step = 1
@@ -63,6 +63,11 @@ func (h *testApp) text() string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// text serialises the simulated screen into plain lines.
+func (h *testApp) text() string {
+	return screenText(h.sim)
 }
 
 func (h *testApp) lineCount() int {

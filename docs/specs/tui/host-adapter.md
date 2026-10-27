@@ -35,23 +35,36 @@ SimulationScreen and wait for initial refreshes.
 returns an unstarted host. `Start(ctx)` mirrors the GUI's startup:
 
 1. `appcore.New(Options{Config, Runtime, Version, LoadMinecraftReleases, OnEvent})`
-   followed by `Startup(ctx)`. On failure the config is still captured and the
-   error is returned so `Run` can exit cleanly.
+   followed by `Startup(ctx)`. The core is cached only after a successful
+   startup; on failure the partially initialized resources are released and
+   the error is returned so `Run` can exit cleanly. `Host.Service()` therefore
+   returns nil until `Start()` succeeds, and `Host.Started()` exposes that
+   state. Callers must not use the service before then. `Start` is serialized
+   and idempotent: a second call keeps the running core/server instead of
+   replacing them. Tests may override the internal `startCore` seam to exercise
+   startup failures and retries.
 2. `httpserver.New(httpserver.DefaultAddr, Options{OnEvent})` + `Start()`. A
    listen failure (e.g. the GUI already owns port 18801) is logged and surfaced
    as a non-fatal `ServerNotice()` in the status bar — the TUI keeps running.
 3. `Runtime.DefaultCacheDir` is `os.Getwd()`, exactly as the GUI.
 
-Shutdown order is fixed: `server.Stop()` → `core.Shutdown()` so the selected
-`.minecraft` directory, background tasks, SQLite and log files are flushed.
+`appcore.Service.Startup`/`Shutdown`/`Close` are idempotent. A failed `Startup`
+tears down anything it initialized and may be retried. Shutdown order is fixed:
+`server.Stop()` → `core.Shutdown()`, which stops the mods watcher, drains
+Service-owned metadata work and provider background refreshes, then flushes the
+selected `.minecraft` directory, SQLite and log files. Core logs rotate without
+a new dependency and are never written to the working directory unless
+`[logging].file` explicitly points there.
 
 ### Logging
 
 `prepareLogging()` configures the core logger with `NoStderr: true`: tview owns
-the terminal, so log lines must go to the log file only. The file path follows
-the loaded config (`mod-downloader.toml`, default `mod-downloader.log` in the
-working directory). `TestRunKeepsStderrClean` starts the real `Run` path against
-a SimulationScreen with `os.Stderr` redirected and asserts that nothing
+the terminal, so log lines must go to the log file only. The default path is
+`<os.UserCacheDir()>/mod-downloader/logs/mod-downloader.log`; `[logging].file`
+in `mod-downloader.toml` overrides it. Files rotate at 6 MiB and keep two
+historical files by default (`[logging].max_size_mb`,
+`[logging].max_backups`). `TestRunKeepsStderrClean` starts the real `Run` path
+against a SimulationScreen with `os.Stderr` redirected and asserts that nothing
 (including an emitted log record) reaches stderr.
 
 ## Event bridge
@@ -74,7 +87,9 @@ translated to UI-neutral values; the adapter decides how to marshal them:
 The tview adapter registers `App.enqueueEvent`, which never blocks the emitter:
 events are buffered and applied in batches by a pump goroutine through
 `Application.QueueUpdate`/`ForceDraw`. Queue snapshots in a batch collapse to the
-newest one, so download progress bursts cost one redraw.
+newest one, so download progress bursts cost one redraw. Unknown core event
+kinds and payloads that fail the contract assertion are logged at Warn instead
+of being dropped silently (`TestUnhandledEventsAreLogged`).
 
 `App.uiUpdate(f)` carries UI mutations requested by controller goroutines
 (search results, settings saves, favorite lists, …) through the same pump. This

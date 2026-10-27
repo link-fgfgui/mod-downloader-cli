@@ -19,8 +19,13 @@ import (
 // the loop starts, so the run exits as soon as the first event is read.
 func runSimulated(t *testing.T, onReady func()) error {
 	t.Helper()
-	// Keep the host's config, sqlite, metadata and log files out of the repo.
+	// Keep the host's config, sqlite, metadata and log files out of the repo and
+	// the real user cache.
 	t.Chdir(t.TempDir())
+	cacheDir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheDir)
+	t.Setenv("LOCALAPPDATA", cacheDir)
+	t.Setenv("HOME", cacheDir)
 
 	// Keep setup logging out of the test output; Run reconfigures the logger.
 	_ = logging.Configure(logging.Options{Disabled: true})

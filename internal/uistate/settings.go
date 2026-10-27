@@ -7,21 +7,11 @@ import (
 	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
 )
 
-// Animation mode identifiers and bounds mirrored from useAnimationSettings.ts.
+// Animation duration bounds mirrored from useAnimationSettings.ts.
 const (
-	AnimationModeOff     = "off"
-	AnimationModeVuetify = "vuetify"
-	AnimationModeGSAP    = "gsap"
-
-	DefaultAnimationMode               = AnimationModeVuetify
 	DefaultAnimationDurationMultiplier = 1.0
 	MinAnimationDurationMultiplier     = 0.1
 	MaxAnimationDurationMultiplier     = 3.0
-
-	// AnimationSwitchingEnabled mirrors the frontend flag that currently pins
-	// every stored animation mode back to the default (GUI parity: switching is
-	// disabled, but the value is still persisted so configs stay compatible).
-	AnimationSwitchingEnabled = false
 )
 
 // Preferred release types.
@@ -31,29 +21,6 @@ const (
 	ReleaseTypeAlpha   = "alpha"
 )
 
-// NormalizeAnimationMode mirrors normalizeAnimationMode. When switching is
-// disabled (current GUI behaviour) every value collapses to the default mode.
-func NormalizeAnimationMode(value string, legacyEnabled *bool) string {
-	if !AnimationSwitchingEnabled {
-		return DefaultAnimationMode
-	}
-	switch value {
-	case AnimationModeOff, "0", "false", "disabled":
-		return AnimationModeOff
-	case AnimationModeVuetify, "1", "true", "enabled", "on":
-		return AnimationModeVuetify
-	case AnimationModeGSAP, "2":
-		return AnimationModeGSAP
-	}
-	if legacyEnabled != nil {
-		if *legacyEnabled {
-			return AnimationModeVuetify
-		}
-		return AnimationModeOff
-	}
-	return DefaultAnimationMode
-}
-
 // NormalizeAnimationDurationMultiplier clamps to [0.1, 3.0] with 1.0 fallback.
 func NormalizeAnimationDurationMultiplier(value float64) float64 {
 	if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
@@ -62,16 +29,10 @@ func NormalizeAnimationDurationMultiplier(value float64) float64 {
 	return math.Min(MaxAnimationDurationMultiplier, math.Max(MinAnimationDurationMultiplier, value))
 }
 
-// AnimationModeEnabled mirrors animationModeEnabled.
-func AnimationModeEnabled(mode string) bool {
-	return NormalizeAnimationMode(mode, nil) != AnimationModeOff
-}
-
 // SettingsDrafts mirrors the settings store's editable draft fields.
 type SettingsDrafts struct {
 	Theme                       string
 	Language                    string
-	AnimationMode               string
 	AnimationDurationMultiplier float64
 	SimpleMode                  bool
 	AutoScanUnusedDependencies  bool
@@ -93,7 +54,6 @@ func LoadSettingsDrafts(view appstructs.SettingsView) SettingsDrafts {
 	return SettingsDrafts{
 		Theme:                       defaultIfEmpty(view.Theme, string(configs.ThemeDark)),
 		Language:                    defaultIfEmpty(view.Language, "system"),
-		AnimationMode:               NormalizeAnimationMode(view.AnimationMode, boolPtr(view.AnimationEnabled)),
 		AnimationDurationMultiplier: NormalizeAnimationDurationMultiplier(view.AnimationDurationMultiplier),
 		SimpleMode:                  view.SimpleMode,
 		AutoScanUnusedDependencies:  view.AutoScanUnusedDependencies,
@@ -151,5 +111,3 @@ func defaultIfEmpty(value, fallback string) string {
 	}
 	return value
 }
-
-func boolPtr(v bool) *bool { return &v }

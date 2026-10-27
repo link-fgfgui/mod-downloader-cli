@@ -79,16 +79,24 @@ func (h *Huh) form(group *huh.Group) *huh.Form {
 	return f
 }
 
+// optionChoices converts prompt options into huh choices. Descriptions are
+// rendered inline because huh's select fields do not show a per-option
+// description in the terminal layout used by the wizard.
+func optionChoices(options []Option) []huh.Option[string] {
+	opts := make([]huh.Option[string], 0, len(options))
+	for _, o := range options {
+		label := o.Label
+		if o.Description != "" {
+			label += " — " + o.Description
+		}
+		opts = append(opts, huh.NewOption(label, o.Value))
+	}
+	return opts
+}
+
 func (h *Huh) Select(ctx context.Context, p SelectPrompt) (string, error) {
 	value := p.Default
-	opts := make([]huh.Option[string], 0, len(p.Options))
-	for _, o := range p.Options {
-		opt := huh.NewOption(o.Label, o.Value)
-		if o.Description != "" {
-			opt = huh.NewOption(o.Label+" — "+o.Description, o.Value)
-		}
-		opts = append(opts, opt)
-	}
+	opts := optionChoices(p.Options)
 	field := huh.NewSelect[string]().Title(p.Title).Options(opts...).Value(&value)
 	if p.Description != "" {
 		field = field.Description(p.Description)
@@ -101,14 +109,7 @@ func (h *Huh) Select(ctx context.Context, p SelectPrompt) (string, error) {
 
 func (h *Huh) MultiSelect(ctx context.Context, p MultiPrompt) ([]string, error) {
 	values := []string{}
-	opts := make([]huh.Option[string], 0, len(p.Options))
-	for _, o := range p.Options {
-		opt := huh.NewOption(o.Label, o.Value)
-		if o.Description != "" {
-			opt = huh.NewOption(o.Label+" — "+o.Description, o.Value)
-		}
-		opts = append(opts, opt)
-	}
+	opts := optionChoices(p.Options)
 	field := huh.NewMultiSelect[string]().Title(p.Title).Options(opts...).Value(&values)
 	if p.Description != "" {
 		field = field.Description(p.Description)

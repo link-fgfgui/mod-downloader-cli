@@ -48,6 +48,17 @@ func TestServerNoticeStartsEmpty(t *testing.T) {
 	}
 }
 
+func TestServiceIsNilUntilStartSucceeds(t *testing.T) {
+	h := New(Options{})
+	if h.Started() {
+		t.Fatal("host reports started before Start")
+	}
+	if svc := h.Service(); svc != nil {
+		t.Fatalf("Service() = %p before Start, want nil", svc)
+	}
+	h.Shutdown() // must be a no-op before Start
+}
+
 // TestCoreEventMapping proves every appcore and HTTP event reaches the sink in
 // the UI-neutral form the tview adapter consumes.
 func TestCoreEventMapping(t *testing.T) {

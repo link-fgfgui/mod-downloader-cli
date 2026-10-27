@@ -519,10 +519,12 @@ func (r runner) withService(c *cli.Context, runtime runtimeInput, fn func(contex
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// Register cleanup before Startup: Startup itself releases partially
+	// initialized resources on failure, and Close is idempotent.
+	defer svc.Close()
 	if err := svc.Startup(ctx); err != nil {
 		return err
 	}
-	defer svc.Close()
 	return fn(ctx, svc)
 }
 

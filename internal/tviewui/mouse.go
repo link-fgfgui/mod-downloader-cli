@@ -11,9 +11,41 @@ import (
 // keep the cursor visible, so scrolling over a list appeared to do nothing.
 type wheelList struct {
 	*tview.List
+
+	// twoLine mirrors ShowSecondaryText so click hit testing knows that each
+	// item paints a title line followed by a description line.
+	twoLine bool
+	// rowZones, when set, restricts clicks to the checkbox and title columns.
+	rowZones   func(index int) listRowZones
+	onCheckbox func(index int)
+	onTitle    func(index int)
+}
+
+// listRowZones describes one row's clickable columns in content cells (before
+// horizontal scrolling). All ranges are half-open.
+type listRowZones struct {
+	Enabled     bool
+	CheckboxEnd int
+	TitleStart  int
+	TitleEnd    int
 }
 
 func newWheelList() *wheelList { return &wheelList{List: tview.NewList()} }
+
+// ShowSecondaryText records the two-line layout for click hit testing.
+func (l *wheelList) ShowSecondaryText(show bool) *tview.List {
+	l.twoLine = show
+	return l.List.ShowSecondaryText(show)
+}
+
+// SetRowClickHandlers enables precise row clicks for multi-select lists:
+// clicking the checkbox toggles one row, clicking the title selects only that
+// row, and every other cell (including the gray description line) is ignored.
+func (l *wheelList) SetRowClickHandlers(zones func(index int) listRowZones, checkbox, title func(index int)) {
+	l.rowZones = zones
+	l.onCheckbox = checkbox
+	l.onTitle = title
+}
 
 func (l *wheelList) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(tview.Primitive)) (bool, tview.Primitive) {
 	inner := l.List.MouseHandler()
@@ -26,9 +58,57 @@ func (l *wheelList) MouseHandler() func(action tview.MouseAction, event *tcell.E
 			case tview.MouseScrollDown:
 				l.moveCursor(1)
 				return true, nil
+			case tview.MouseLeftClick:
+				if l.rowZones != nil {
+					l.handleRowClick(event, setFocus)
+					// Consume even a miss: a click on the description or on the
+					// empty space between columns must not activate the row.
+					return true, nil
+				}
 			}
 		}
 		return inner(action, event, setFocus)
+	}
+}
+
+// handleRowClick maps a click to the visible row and one of the two allowed
+// columns. The title line is row*2; the description line is row*2+1.
+func (l *wheelList) handleRowClick(event *tcell.EventMouse, setFocus func(tview.Primitive)) {
+	x, y := event.Position()
+	innerX, innerY, width, height := l.GetInnerRect()
+	if x < innerX || x >= innerX+width || y < innerY || y >= innerY+height {
+		return
+	}
+	relativeY := y - innerY
+	if l.twoLine {
+		if relativeY%2 == 1 {
+			return
+		}
+		relativeY /= 2
+	}
+	itemOffset, horizontalOffset := l.GetOffset()
+	index := relativeY + itemOffset
+	if index < 0 || index >= l.GetItemCount() {
+		return
+	}
+	zones := l.rowZones(index)
+	if !zones.Enabled {
+		return
+	}
+	column := x - innerX + horizontalOffset
+	switch {
+	case column >= 0 && column < zones.CheckboxEnd:
+		setFocus(l)
+		l.SetCurrentItem(index)
+		if l.onCheckbox != nil {
+			l.onCheckbox(index)
+		}
+	case column >= zones.TitleStart && column < zones.TitleEnd:
+		setFocus(l)
+		l.SetCurrentItem(index)
+		if l.onTitle != nil {
+			l.onTitle(index)
+		}
 	}
 }
 
@@ -86,7 +166,16 @@ type wheelForm struct {
 	padding int
 }
 
-func newWheelForm() *wheelForm { return &wheelForm{Form: tview.NewForm(), padding: 1} }
+func newWheelForm() *wheelForm {
+	form := tview.NewForm()
+	// tview's default Escape handling resets the focus to item 0. The settings
+	// form starts with a read-only section header (TextView), and focusing it
+	// makes tview re-enter Form.Focus until the UI goroutine deadlocks. The
+	// shell already layers Escape (dialog -> dropdown -> page -> home), so the
+	// form itself must not move focus.
+	form.SetCancelFunc(func() {})
+	return &wheelForm{Form: form, padding: 1}
+}
 
 // SetItemPadding records the padding so contentHeight stays accurate.
 func (f *wheelForm) SetItemPadding(padding int) *tview.Form {

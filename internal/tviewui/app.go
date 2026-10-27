@@ -72,6 +72,13 @@ type pageClearer interface {
 	ClearFocus() bool
 }
 
+// pageDropdowns is implemented by pages whose widgets can expand a DropDown.
+// tview moves focus to the drop-down's internal list while it is open, so the
+// shell cannot detect that state through Application.GetFocus.
+type pageDropdowns interface {
+	DropdownOpen() bool
+}
+
 // Options configures a tview TUI run.
 type Options struct {
 	// Version is the normalized app version (ldflags-injected, "dev" fallback).
@@ -783,9 +790,9 @@ func (a *App) connectorLabel() string {
 	}
 	target := v.ActualModLoader
 	if v.ConnectorVirtual {
-		return i18n.T("connector.switchTo", map[string]string{"loader": target})
+		return i18n.T("sidebar.connector.switchTo", map[string]string{"loader": target})
 	}
-	return i18n.T("connector.switchTo", map[string]string{"loader": "Fabric"})
+	return i18n.T("sidebar.connector.switchTo", map[string]string{"loader": "Fabric"})
 }
 
 // applySettings stores the settings snapshot and re-applies language/theme.
@@ -1016,6 +1023,9 @@ func (a *App) handleGlobalMouse(event *tcell.EventMouse, action tview.MouseActio
 
 // textInputFocused reports whether the focused widget consumes character keys.
 func (a *App) textInputFocused() bool {
+	if a.dropdownOpen() {
+		return true
+	}
 	focus := a.application.GetFocus()
 	switch typed := focus.(type) {
 	case *tview.InputField, *tview.TextArea:
@@ -1040,6 +1050,11 @@ func (a *App) textInputFocused() bool {
 
 // dropdownOpen reports whether a DropDown is currently expanded.
 func (a *App) dropdownOpen() bool {
+	if a.active >= 0 && int(a.active) < len(a.views) {
+		if page, ok := a.views[a.active].(pageDropdowns); ok && page.DropdownOpen() {
+			return true
+		}
+	}
 	focus := a.application.GetFocus()
 	switch typed := focus.(type) {
 	case *tview.DropDown:

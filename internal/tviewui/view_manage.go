@@ -82,11 +82,13 @@ func newManagePage(a *App) *managePage {
 	v.list.SetTitle(i18n.T("manage.title"))
 	a.theme.styleBox(v.list.Box)
 	a.theme.styleList(v.list.List)
-	// A click toggles the checkbox; activating a row stays on Enter so the
-	// mouse cannot enable/disable a mod by accident.
+	// A checkbox click toggles selection, a title click selects only that row;
+	// activating a row stays on Enter so the mouse cannot enable/disable a mod
+	// by accident.
 	v.list.SetSelectedFunc(func(index int, _, _ string, _ rune) {
 		v.toggleAt(index)
 	})
+	v.list.SetRowClickHandlers(v.rowClickZones, v.toggleAt, v.selectOnlyAt)
 
 	v.action = newActionBar(a)
 	v.action.SetRefocus(v.Focus)
@@ -460,6 +462,51 @@ func (v *managePage) toggleAt(index int) {
 		v.selected[key] = true
 	}
 	v.list.SetItemText(index, v.rowMain(row), v.rowSecondary(row))
+	v.renderBar()
+}
+
+// rowClickZones exposes the checkbox and title columns of one manage row.
+func (v *managePage) rowClickZones(index int) listRowZones {
+	if index < 0 || index >= len(v.rows) {
+		return listRowZones{}
+	}
+	row := v.rows[index]
+	if row.Kind == uistate.RowKindIncompatibleToggle {
+		_, incompatible := uistate.PartitionAndBuildRows(v.filtered, v.app.mc.SelectedModLoader, v.expanded)
+		title := i18n.T("manage.incompatible.title", map[string]string{"n": itoa(incompatible)})
+		start := escapedWidth("⚠ ")
+		return listRowZones{
+			Enabled:    true,
+			TitleStart: start,
+			TitleEnd:   start + escapedWidth(title),
+		}
+	}
+	state := "●"
+	if !row.Group.Primary.Enabled {
+		state = "○"
+	}
+	start := escapedWidth(checkBox(false) + " " + state + " ")
+	return listRowZones{
+		Enabled:     true,
+		CheckboxEnd: plainWidth(checkBox(false)),
+		TitleStart:  start,
+		TitleEnd:    start + escapedWidth(uistate.DisplayModName(row.Group)),
+	}
+}
+
+// selectOnlyAt replaces the multi-selection with this row, mirroring a click on
+// the title rather than on the checkbox.
+func (v *managePage) selectOnlyAt(index int) {
+	if index < 0 || index >= len(v.rows) {
+		return
+	}
+	row := v.rows[index]
+	if !row.Selectable() {
+		return
+	}
+	v.selected = map[string]bool{row.RowKey(): true}
+	v.list.SetCurrentItem(index)
+	v.rebuildList()
 	v.renderBar()
 }
 

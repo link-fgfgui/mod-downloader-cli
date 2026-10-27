@@ -209,3 +209,30 @@ func ExampleT() {
 	// Home
 	// Conflicting file: a.jar
 }
+
+func TestSystemLocalesOrderAndLanguageFallback(t *testing.T) {
+	t.Setenv("LC_ALL", " ")
+	t.Setenv("LC_MESSAGES", "zh_CN.UTF-8")
+	t.Setenv("LANG", "en_US.UTF-8")
+	t.Setenv("LANGUAGE", " zh_CN : en_US : ")
+
+	locales := SystemLocales()
+	want := []string{"zh_CN.UTF-8", "en_US.UTF-8", "zh_CN", "en_US"}
+	if len(locales) != len(want) {
+		t.Fatalf("locales=%v, want %v", locales, want)
+	}
+	for i, value := range want {
+		if locales[i] != value {
+			t.Fatalf("locales[%d]=%q, want %q (all %v)", i, locales[i], value, locales)
+		}
+	}
+	if got := Resolve(LanguageSystem, locales); got != LanguageChinese {
+		t.Fatalf("resolve system with zh locale=%q", got)
+	}
+	if got := Resolve(LanguageSystem, []string{"en_US.UTF-8"}); got != LanguageEnglish {
+		t.Fatalf("resolve system with en locale=%q", got)
+	}
+	if got := Resolve(LanguageSystem, nil); got != LanguageEnglish {
+		t.Fatalf("resolve system without locales=%q", got)
+	}
+}

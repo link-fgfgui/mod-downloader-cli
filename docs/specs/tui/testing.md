@@ -1,225 +1,307 @@
-# TUI 测试方案
+# TUI 测试方案（tview）
 
-> 状态：旧 Bubble Tea TUI 已删除，本文中 `tui/`、`tea.Cmd`、`AppModel.Update` 等描述仅作历史参考。
-> 当前 tview 测试位于 `internal/tviewui/*_test.go`：SimulationScreen 用例见
-> `harness_test.go`、`shell_test.go`、`render_test.go`，golden 在
-> `internal/tviewui/testdata/frames/`，生命周期/泄漏检查见 `lifecycle_test.go`。
+> 状态：现行。终端界面已迁移到 tview，旧 Bubble Tea 的 `tui/`、`tea.Cmd`、
+> `AppModel.Update` 描述已移除。
+>
+> 测试代码位置：
+>
+> - 界面：`internal/tviewui/*_test.go`，golden 在 `internal/tviewui/testdata/frames/`
+> - 纯状态：`internal/uistate/uistate_test.go`、`uistate_extra_test.go`
+> - 宿主与事件映射：`internal/tuihost/host_test.go`、`host_lifecycle_test.go`
+> - 真实事件循环（注入键鼠）：`internal/tviewui/input_loop_test.go`
+> - 离线控制器契约：`internal/tviewui/controller_offline_test.go`
+> - 真实 API（env 门控）：`internal/tviewui/live_api_test.go`
+> - 真实终端：`scripts/tui-smoke.sh`（tmux PTY）
+> - 国际化：`internal/i18n/i18n_test.go`
 
-> 目标：用可重复的自动化测试覆盖终端渲染、事件循环、键鼠交互、异步命令和进程级行为，避免“看起来能用、实际一用就坏”的回归。
+## 1. 测试分层
 
-## 1. 风险模型
+### L0 纯函数与组件（不启动终端）
 
-按已发生过的真实缺陷分类：
-
-| 类别 | 典型缺陷 | 测试层 |
-| :--- | :--- | :--- |
-| 事件反馈环 | refresh → event → refresh 无限循环，手动目标版本被重置 | L1 / L5 |
-| 宽度与换行 | 弹窗内容按 width 截断，但 lipgloss 实际内容宽度是 width-2，导致内部换行、左右边框被挤掉 | L0 / L2 / L3 |
-| 异步路由 | filepicker 的 readDirMsg 被送到当前页面而不是弹窗，永远 “No Files Found” | L1 / L4 |
-| 回调未接线 | path picker 关闭但 onAccept 为空，确认后无任何效果 | L1 / L4 |
-| 输入焦点 | 光标 blink 消息把输入框重置为当前目录，打字被吞 | L1 / L4 |
-| 顺序错位 | 设置页显示顺序与上下键顺序不一致 | L1 / L2 |
-| 副作用 | 日志写 stderr 与全屏 TUI 抢终端 | L6 |
-| 命中区域 | 列表行、弹窗按钮、滚动后的行坐标错位 | L2 / L4 |
-| 国际化 | 中文宽字符导致截断/边框错位 | L0 / L2 / L3 |
-| 小终端 | 侧栏消失、弹窗溢出、宽图表换行 | L2 / L3 |
-
-## 2. 测试分层
-
-### L0 纯函数与组件
-
-- `tui/kit`：Rect/Split/Grid、ANSI 安全 Width/Truncate/Pad/Wrap、CJK/emoji/组合字符。
-- `tui/list`：cursor/offset/window/scrollbar/多选区间。
-- `tui/table`：列宽分配、Drop 优先级、左右对齐、ANSI cell。
-- 不变量：`Width(Truncate(s,w)) <= w`、`Width(Fit(s,w)) == w`、任何换行后每行 `<= w`。
-
-### L1 模型与事件循环
-
-纯 `AppModel.Update`，不启动真实 Host：
-
-- 键路由顺序：WindowSize → 全局键 → 弹窗 → 队列 → 当前页。
-- Modal 栈：push/pop、同 ID 去重、Esc 顺序、遮罩点击。
-- 异步消息：`SelectedVersionChangedMsg` 不得再次排 refresh（回归测试）。
-- 文件选择器：readDirMsg 必须到达顶层弹窗；onAccept 必须被调用。
-- 设置页：`rows()` 顺序 = cursor 顺序；隐藏行（target_rate）不参与导航。
-- 队列/下载状态：每个 core 事件都能被消费，且不会重复触发命令。
-
-### L2 渲染不变量（每个页面、每个弹窗、每个尺寸）
-
-对每一帧断言：
-
-1. 行数 == 终端高度。
-2. 每行 `kit.Width(line) <= 终端宽度`。
-3. 无残缺 ANSI 转义（已有 `hasPartialEscape`）。
-4. 弹窗：上下边框各出现一次，内容行数 == `modal.View()` 行数（不能因宽度不足而换行）。
-5. 弹窗内容区宽度 == `Width - 2`（lipgloss padding 后的真实内容宽度）。
-6. 点击矩形：`dialogBox` 包含 `dialogRect`，且都在屏幕内。
-7. 侧栏：>=50 列必须可见；50–119 为 7 列 rail；>=120 为 30 列。
-8. 设置页：如果内容高于视口，必须出现滚动条；滚动到尾部能看到最后一个设置项。
-
-### L3 Golden 快照
-
-目录：
-
-```
-tui/testdata/frames/
-  home_120x40_en.golden
-  home_80x24_zh.golden
-  settings_80x24_zh.golden
-  dialog_target_50x20_zh.golden
-  ...
-```
-
-规则：
-
-- 尺寸：50x20、80x24、100x30、120x40、160x50。
-- 语言：en、zh。
-- 页面：Home/Download/Manage/Favorites/Unpin/Settings。
-- 弹窗：choice/select/prompt/version list/target/path picker/help/disable impact。
-- 状态：空列表、加载中、错误、长列表（滚动）、多选、窄屏。
-- 更新方式：`go test ./tui -run TestGolden -update`，golden diff 必须人工 review。
-- 快照只存去掉 ANSI 的文本 + 单独存一份带 ANSI 的哈希，避免颜色变化导致噪音。
-
-### L4 交互矩阵
-
-| 操作 | 覆盖点 |
+| 文件 | 覆盖内容 |
 | :--- | :--- |
-| 键 | 1–6、j/k、↑↓、PgUp/PgDn、Home/End、Space、Ctrl+A、Shift+↑↓、Esc、Enter、Tab/Shift+Tab |
-| 鼠标 | 点击侧栏、行、按钮、遮罩、边框；Ctrl/Shift 多选；滚轮上/下 |
-| 弹窗 | 点击按钮、点击行、滚动后点击、点边框不关闭、点遮罩关闭 |
-| 文件选择器 | 树加载、Enter 选目录、Shift+Tab 切焦点、Ctrl+S 确认、输入路径、`~`/`$HOME` 展开 |
-| Tab 补全 | 公共前缀、二次 Tab 列候选、单候选、目录斜杠、无候选 |
-| 队列 | q 打开、Tab 切页、c/r/x、右键清空提醒、滚动不穿透 |
+| `format_extra_test.go` | 速度/百分比/紧凑数字/进度条、CJK 安全的 `truncate`、复选框 |
+| `chrome_theme_extra_test.go` | `uiText` 中英标签、chrome 字典双语完整性、主题解析与颜色标签 |
+| `status_mouse_extra_test.go` | 状态栏 hint 裁剪、队列胶囊宽度、可点击区域、wheelList/Table/Form、`clipScreen`、actionBar 布局 |
+| `shell_extra_test.go` | 断点/侧栏宽度、`mainWidth` 夹取、队列胶囊、busy 状态、toast、Esc 回退顺序、视图切换、侧栏 footer |
+| `internal/uistate/*_test.go` | 搜索分页与竞态、队列铃声/展示、Manage 分组、收藏 scope、设置 clamp、API key 掩码 |
+| `internal/i18n/i18n_test.go` | 语言归一化、key 对等、插值与回退 |
 
-断言方式：直接调用 `m.Update` 注入 `tea.KeyMsg` / `tea.MouseMsg`，然后检查模型状态和 `m.frame.Hits`；不要依赖 sleep。
+### L1 渲染不变量
 
-### L5 异步与命令
+[`render_test.go`](../../../internal/tviewui/render_test.go)：
 
-- `Host.emitCoreEvent`：8 种事件 → 强类型 Msg。
-- 命令返回值：`cmd()` 产生的消息再次喂给 `Update`，断言状态收敛。
-- 反馈环检测：连续执行 N 轮命令，若命令数量持续增长或状态重复变化则失败。
-- 异步竞态：`SelectedVersionChangedMsg`、`localModsMsg`、`DownloadQueueUpdatedMsg` 乱序到达时状态仍一致。
-- 定时器：toast 过期、spinner、queue 刷新在空闲时停止（命令数归零）。
+- `TestRenderMatrix`：6 个页面 × 5 种尺寸 `50x20 / 80x24 / 100x30 / 120x40 / 160x50`
+  × 中英双语，断言行数等于终端高度、每行宽度不超过终端宽度。
+- `TestDialogRenderMatrix`：confirm / prompt / select / path / target / help /
+  version / favorites / refs / disable-impact 在全部尺寸与语言下不溢出。
+- `assertFrameBounds`：所有帧的共同边界断言。
 
-### L6 进程级 E2E
+### L2 Golden 快照
 
-优先用 `github.com/charmbracelet/x/exp/teatest`（或轻量 pty harness）：
+- `TestGoldenPages` 生成 6 页 × 5 尺寸 × 2 语言，共 60 个文件。
+- 更新：`go test ./internal/tviewui -run TestGoldenPages -update`。
+- 每个 golden diff 必须人工 review，不能直接提交 `-update` 的结果。
+- golden 只保存屏幕文本，不断言具体颜色值。
 
-- 启动真实 `tui.Run`，等待首帧，断言关键文本。
-- 打开设置 → 文件选择器 → 输入 `/home/link/.minecraft` → Enter → 回到设置断言路径。
-- 打开实例弹窗 → 切到 MC version → Right 两次 → 断言值变化并保持（回归 refresh loop）。
-- 选择器：Shift+Tab → Down → Enter → Ctrl+S → 断言保存。
-- 退出：Ctrl+C，断言进程在 2s 内结束、日志文件关闭。
-- 日志断言：TUI 运行期间 stderr 为空；日志文件无 DEBUG。
+### L3 键盘、焦点与弹窗
 
-补充 tmux 冒烟脚本（真实终端、真实 TTY 尺寸）：
+- [`shell_test.go`](../../../internal/tviewui/shell_test.go)：数字键、输入框吞键、
+  Tab 焦点循环、多选、兼容性折叠、语言切换、弹窗栈、设置顺序。
+- [`shell_extra_test.go`](../../../internal/tviewui/shell_extra_test.go)：关闭的下拉框不吞
+  全局键、打开的下拉框接管输入、Esc 逐层回退、视图切换关闭队列并恢复焦点。
+- [`dialogs_extra_test.go`](../../../internal/tviewui/dialogs_extra_test.go)：
+  - confirm：长文本滚动、PgUp/PgDn/↑↓、左右/Backtab 切换、Esc 等价取消；
+  - prompt：校验失败保持打开、去空格、取消不提交；
+  - select：禁用项不可选、Esc 关闭；
+  - path：目录/保存模式、`.zip` 补全、非法路径、无补全、候选截断、`~`/`$HOME`；
+  - target：目录/实例/刷新/MC 版本/loader 行；
+  - version：加载/空/已安装/固定标记、pin 与 replace 两条路径；
+  - favorites：列表选择、嵌套新建、缺 scope 提示、引用渲染；
+  - disable-impact：缓存缺失提示、多候选来源选择、恢复完成标记；
+  - 弹窗栈：同名去重、仅关最上层、中间层移除、焦点恢复；
+  - centered：小终端下的尺寸夹取与遮罩点击。
+
+### L4 鼠标
+
+[`mouse_test.go`](../../../internal/tviewui/mouse_test.go)、
+[`list_click_test.go`](../../../internal/tviewui/list_click_test.go) 与
+[`status_mouse_extra_test.go`](../../../internal/tviewui/status_mouse_extra_test.go)：
+
+- 滚轮滚动结果列表、设置表单、pin 表格；滚动后的行坐标仍命中正确行。
+- 多选列表点击语义：左侧复选框切换该项多选；单击标题文字只选中该行；灰色描述行、
+  状态图标、标题后的空白一律视为未命中。标题命中区按实际渲染宽度计算（含 CJK、
+  横向滚动 offset）。
+- 点击行切换复选、点击 action bar、点击侧栏、双击降级为单击。
+- 状态栏 hint 区域可点击；右键队列胶囊清空提醒。
+- 弹窗打开时背景点击被拦截，点边框不关闭也不穿透。
+- 主题切换后列表/文字/侧栏背景使用新调色板。
+
+### L5 事件与异步
+
+- [`events_extra_test.go`](../../../internal/tviewui/events_extra_test.go)：`handleEvent`
+  的 8 类事件、错误 payload、stale 搜索请求、扩展结果、状态栏刷新、事件压缩。
+- [`lifecycle_test.go`](../../../internal/tviewui/lifecycle_test.go)：真实 tview 事件循环
+  启动/停止、事件泵批处理、busy spinner 上屏、`goleak` 无残留 goroutine。
+- `internal/uistate`：request-id 竞态丢弃、分页 append、队列 membership diff、
+  铃声每周期只响一次。
+
+### L5.5 真实事件循环与键鼠注入
+
+[`input_loop_test.go`](../../../internal/tviewui/input_loop_test.go) 通过
+`SimulationScreen.InjectKey` / `InjectMouse` 驱动**真实的** tview 事件循环与输入捕获，
+不走离线 harness 的快捷路径：
+
+- 1–6 导航；`?` 帮助、`t` 目标弹窗、Esc 分层关闭；
+- `/` 聚焦搜索、输入数字/空格不会触发导航、Tab/Backtab 在搜索与列表间切换；
+- 侧栏鼠标点击（按下+释放，走 tview 的 click 判定）；
+- 运行中缩放 `60x20 → 40x14 → 120x40`，含弹窗打开时的窄屏重排；
+- 设置页主题/语言下拉框的键盘打开、选择、表单重建；
+- Tab/Backtab 跳过只读分区标题与只读行，始终落在可交互控件上；
+- 下拉框打开时 Esc 只关闭下拉框（回归：曾导致 UI goroutine 死锁）；
+- 队列 dock 打开/聚焦/Esc 关闭；
+- 500 条队列事件风暴后仍能响应导航。
+
+`controller_offline_test.go` 锁定离线 harness 的 DAAU 契约：所有控制器入口在
+`Service()==nil` 时必须安全返回，不能 nil panic。
+
+### L6 页面业务流
+
+[`pages_extra_test.go`](../../../internal/tviewui/pages_extra_test.go)：
+
+- Download：搜索/追加、安装确认、metadata 重试、批量安装、队列行状态、版本弹窗、
+  收藏入口、目录选择、光标触底加载。
+- Manage：分组渲染、全部/启用/禁用过滤、搜索、Space/Ctrl+A、兼容性折叠、
+  删除确认、未使用依赖扫描、收藏与版本入口保护。
+- Favorites：双栏布局、窄屏切换、列表排序、item 多选、所有列表级快捷键、
+  跨版本输入校验、快照转搜索结果、草稿映射。
+- Unpin：表格渲染、选中行、清空态、单条/全部取消。
+- Settings：快照回填、密钥掩码、解析工具、ClearFocus、语言切换重建。
+- Home：不同宽度下的指标卡布局与快捷键。
+- Download 动作栏：安装当前行、批量下载空选择、全选、收藏入口（光标回退与多选）、
+  目标选择弹窗（`TestDownloadActionBarCallbacks`）。
+
+[`controller_live_test.go`](../../../internal/tviewui/controller_live_test.go) 与
+[`controller_live_more_test.go`](../../../internal/tviewui/controller_live_more_test.go)
+使用真实 `tuihost.Host` + `appcore.Service`，在 SimulationScreen 上驱动控制器：
+
+- 设置保存：主题/语言/精简/清理/MCIM/release/网络/缓存目录/API key；
+- 收藏：创建、重命名、固定、复制、图标、引用增删、页面级移除、导出失败提示；
+- 收藏页面全部弹窗：prompt 新建/重命名（空名拒绝）、列表复制、引用添加、
+  图标 mdi/project/clear、条目复制、转搜索结果、删除取消/确认、
+  add-favorite 内联新建列表；
+- 跨版本复制：用本地缓存的 project + 版本快照离线解析成功、目标名称冲突、
+  未知平台冲突、忽略冲突但无匹配；
+- 固定版本：pin/refresh/batchUnpin/unpin/unpinAll；
+- 队列：非法下载请求、cancel/retry/remove/reminder/optional 动作、下载状态回填；
+- 实例：目录切换、选择实例、刷新 mods、Connector 错误、无效版本；
+- Manage：页面级批量操作失败提示、未使用依赖扫描、`enterRow` 折叠/批量/越界；
+- 版本弹窗：未知平台返回空列表时的 loading 收尾与占位行；
+- 禁用影响弹窗的单候选恢复路径（缓存拒绝也不卡在 restoring）；
+- `Quit` 后事件循环退出。
+
+约束：
+
+- 一个进程只能运行一个 `appcore.Service`，所以 live 测试不能 `t.Parallel`。
+- 每个 live 测试必须通过 `t.Cleanup` 调用 `Quit` 并等待退出。
+- 控制器方法通过 `doUI` 在 UI goroutine 上调用，页面状态通过 `waitFor` / `waitUI`
+  在 UI goroutine 上读取，避免竞态。
+
+### L7 进程级、真实 API 与真实终端
+
+- [`run_test.go`](../../../internal/tviewui/run_test.go)：完整 `runWith` 启动、
+  `startupDone`、Ctrl+C 退出、stderr 为空。
+- `TestApplicationLifecycleNoLeaks` / `TestEventPumpAppliesBatchedEvents`：`goleak`。
+- [`live_api_test.go`](../../../internal/tviewui/live_api_test.go)：默认跳过，设置
+  `MOD_DOWNLOADER_LIVE_API=1` 后执行：
+  - Mojang release manifest 冷启动（`LoadMinecraftReleases=true`）；
+  - 真实 Modrinth 搜索（键盘路径）并打开版本弹窗；
+  - 真实下载第一个结果，断言 jar 落到临时实例的 `mods/`，队列最终收敛。
+- `scripts/tui-smoke.sh`：构建真实二进制，在 tmux PTY 中启动、按键导航、打开帮助、
+  缩放 100x30→60x20→120x40、Ctrl+C 退出并检查无超宽帧。
+- 公开入口 `Run` 需要真实 TTY；由上面的 tmux 冒烟覆盖。
 
 ```sh
-tmux new-session -d -s tui -x 80 -y 24 "./mod-downloader-cli"
-sleep 3
-tmux send-keys -t tui t; ...
-tmux capture-pane -p -t tui | grep -q "Minecraft Version"
+make test-live-api   # 真实网络
+make test-tui-smoke  # 真实终端
 ```
 
-### L7 稳定性
+## 1.5 DAAU（Developer As A User）契约
 
-- `go test -race ./tui/...`
-- 随机键序列 fuzz：从一组合法键中随机 10k 步，断言不 panic、帧尺寸不越界。
-- 尺寸 fuzz：宽 40..200、高 10..60 的所有组合，6 个页面 + 弹窗不 panic。
-- 性能基准：`BenchmarkView`（空/1000 行）、`BenchmarkManageRows`、`BenchmarkSettingsView`。
-- 内存：渲染 1000 帧不增长（`testing.AllocsPerRun` 基线）。
-- 泄漏：`goleak` 检查 TUI 退出后无残留 goroutine。
+把内部开发者视为 TUI/Host API 的用户，以下行为由测试锁定：
 
-## 3. 测试工具设计
+- `tuihost.Host.Start` 串行且幂等：重复调用不会替换或泄漏 core/HTTP server；失败后
+  `Service()`/`Core()` 仍为 nil，可重试。`Shutdown` 可重复调用。
+- `App` 离线模式：未启动 core 时，所有控制器方法必须安全 no-op；新增控制器方法必须
+  加入 `TestOfflineControllersAreNoOps`。
+- `App.service()` 是唯一的核心入口；不要在控制器里直接 `host.Service()` 绕过离线守卫。
+- 页面可选接口（`pageActivator`、`pageResizer`、`pageRestyler`、`pageClearer`、
+  `pageDropdowns`）有各自的事件/焦点契约；新增实现必须补对应测试。
+- core 事件契约变更必须同步更新 `tuihost.emitCoreEvent`、映射测试与
+  `host-adapter.md`；未知事件/错误 payload 记录 Warn，不静默丢弃。
+- 真实输入用例走 `Application` 事件循环；离线 `testApp` 只用于纯渲染/焦点/命中测试。
+- 屏幕断言统一通过 `screenText`（跳过宽字符续格）。
 
-### 3.1 testutil（tui 包内）
+## 2. 测试工具
+
+### 2.1 离线 `testApp`（`harness_test.go`）
 
 ```go
-func newTestApp() *AppModel
-func render(t *testing.T, m *AppModel, w, h int) string
-func sendKey(t *testing.T, m *AppModel, key tea.KeyMsg)
-func sendRunes(t *testing.T, m *AppModel, s string)
-func click(t *testing.T, m *AppModel, x, y int)
-func wheel(t *testing.T, m *AppModel, delta int)
-func runCmd(t *testing.T, m *AppModel, cmd tea.Cmd) // 递归执行 BatchMsg
-func assertFrame(t *testing.T, out string, w, h int)
-func findHit(t *testing.T, m *AppModel, kind HitKind, name string) Hit
+h := newTestApp(t, 100, 30) // 不启动 core，控制器方法为 no-op
+h.draw()
+h.rune('3'); h.key(tcell.KeyEsc)
+h.mustContain("Local Mod Management")
+h.switchPage(ViewSettings)
 ```
 
-### 3.2 Golden helper
+- `sendKey` 同时经过 `handleGlobalKey` 与焦点控件，和真实事件路径一致。
+- `text()` 从 SimulationScreen 取字符，跳过宽字符的续格。
+- 控制器调用依赖 `a.offline` 守卫；新增控制器方法时必须保留该守卫。
+
+### 2.2 在线 `liveApp`（`controller_live_test.go`）
 
 ```go
-var update = flag.Bool("update", false, "update golden frames")
-
-func golden(t *testing.T, name, got string) {
-    path := filepath.Join("testdata", "frames", name+".golden")
-    if *update { os.WriteFile(path, []byte(got), 0o644); return }
-    want, _ := os.ReadFile(path)
-    if diff := cmp.Diff(string(want), got); diff != "" { t.Fatal(diff) }
-}
+l := newLiveApp(t)                 // 临时 HOME/XDG + SimulationScreen + 真实 core
+l.doUI(func() { l.app.saveTheme(ThemeLight) })
+l.waitFor("theme", func(a *App) bool { return a.theme.Name == ThemeLight })
+l.pressRune('3')                   // 真实 InjectKey，走 Application 输入捕获
+l.waitFor("manage", func(a *App) bool { return a.active == ViewManage })
+l.resize(60, 20)                   // SetSize + QueueUpdateDraw
+l.click(x, y)                      // 按下 + 释放，触发 tview 的 MouseLeftClick
 ```
 
-### 3.3 事件/命令收敛 helper
+- `doUI`：在 UI goroutine 上执行控制器/页面方法。
+- `waitUI`：把断言排到所有待处理事件之后。
+- `waitFor`：在 UI goroutine 上轮询条件，超时失败；不使用裸 `sleep`。
+- `waitForTimeout`：用于真实网络流程的显式长超时。
+- `press*` / `typeText` / `click` / `resize`：真实输入注入；点击必须发送按下+释放，
+  `SetSize` 后必须触发一次 Draw。
+- `newLiveAppWith(t, Options{...})`：需要 `LoadMinecraftReleases=true` 等启动选项时使用。
+- 屏幕文本统一用 `screenText` 读取，宽字符的续格会被跳过；否则 CJK 文案会带出
+  上一帧残留字符，产生伪失败。
+
+### 2.3 Golden helper
 
 ```go
-func settle(t *testing.T, m *AppModel, msg tea.Msg, maxSteps int) *AppModel {
-    for i := 0; i < maxSteps; i++ {
-        model, cmd := m.Update(msg)
-        m = model.(*AppModel)
-        if cmd == nil { return m }
-        msg = cmd()
-    }
-    t.Fatal("commands did not settle")
-    return m
-}
+go test ./internal/tviewui -run TestGoldenPages -update
 ```
 
-## 4. 实施优先级
+更新后检查 `git diff internal/tviewui/testdata/frames`，确认只是预期的布局变化。
 
-### P0（已有，必须保持）
-
-- kit/list/table 纯函数测试。
-- 六页 × 尺寸/语言渲染不变量。
-- 弹窗点击/滚轮/遮罩/边框测试。
-- 设置显示顺序、隐藏动画/简易模式。
-- 文件选择器：onAccept、异步加载、Tab 补全、树选择。
-- 版本切换 + refresh loop 回归。
-- 日志：TUI stderr 为空、CLI 默认 WARN、-v DEBUG。
-
-### P1（本季度）
-
-- Golden 快照全量（6 页 × 5 尺寸 × 2 语言）。
-- 所有弹窗的渲染不变量（不换行、边框完整）。
-- `settle` 命令收敛测试：版本切换、目录切换、下载队列。
-- fuzz：随机键序列 + 随机尺寸。
-- `go test -race` 纳入 CI。
-
-### P2（后续）
-
-- teatest 进程级 E2E：启动、设置、文件选择、退出。
-- tmux 冒烟脚本（3 个尺寸）。
-- 性能基准与 alloc 基线。
-- goleak。
-
-## 5. CI 流水线
+## 3. 命令与覆盖率基线
 
 ```sh
-go test ./...
-go test -race ./tui/...
-go vet ./...
-go test ./tui -run TestGolden
-go test ./tui -fuzz FuzzKeySequences -fuzztime=30s
-./scripts/tui-smoke.sh
+make test
+make test-race
+make test-live-api     # 需要网络
+make test-tui-smoke    # 需要 tmux
+go test ./internal/tviewui -run TestGoldenPages
+go test ./internal/tviewui ./internal/uistate ./internal/tuihost ./internal/i18n -cover
 ```
+
+当前基线（2026-10，`go test ./... -cover`）：
+
+| 包 | 行覆盖率 |
+| :--- | ---: |
+| `internal/tviewui` | 93.4% |
+| `internal/uistate` | 97.7% |
+| `internal/tuihost` | 98.1% |
+| `internal/i18n` | 100.0% |
+| `cliapp/prompt` | 79.6% |
 
 门槛：
 
-- 行覆盖率：`tui` >= 70%，`internal/uistate` >= 80%，`tui/kit` >= 90%。
-- 所有 golden diff 必须人工确认。
-- 任何 fuzz/race 失败阻断合并。
+- `internal/tviewui` 不低于 80%，`internal/uistate` 不低于 90%。
+- 所有 golden diff 人工确认。
+- `-race` 失败阻断合并。
+- live 测试禁止并行，避免多个 core 同时启动。
+- 真实 API / tmux 测试默认不跑，发布前手动执行。
+
+## 4. 已知未覆盖项
+
+这些不是遗漏，而是当前自动化测试不适合默认覆盖的路径，需用真实环境或显式命令验证：
+
+| 路径 | 原因 |
+| :--- | :--- |
+| `tviewui.Run` / `run` | 需要真实 TTY；由 `make test-tui-smoke` 覆盖 |
+| `managePage.copySelection` | 依赖系统剪贴板 |
+| 真实 Modrinth/Mojang 网络 | 默认 hermetic；由 `make test-live-api` 覆盖 |
+| `tuihost.Start` 的真实网络失败分支 | 用 `startCore` seam 覆盖状态清理与重试；不依赖外网故障 |
+
+## 5. 历史缺陷回归清单
+
+修复缺陷时必须保留对应测试：
+
+| 缺陷 | 回归测试 |
+| :--- | :--- |
+| 版本事件再次排 refresh，形成反馈环 | `TestVersionChangeDoesNotScheduleRefresh` |
+| 自动打开的队列 dock 抢焦点 | `TestQueueFocusRestoration` |
+| 下拉框打开后焦点移到内部列表，全局键仍生效 | `TestTextInputFocusAndDropdownState` |
+| 安装确认按 Esc 后下载 key 未释放 | `TestDownloadInstallConfirmationAndMetadataRetry` |
+| Connector 文案使用了不存在的 i18n key | `TestConnectorLabelAndAvailability` |
+| 收藏选择框 `[X]` 被当作样式标签吞掉 | `TestAddFavoriteDialogSelectionAndCancel` |
+| `batchUnpin` 传入空 version 导致实际未取消 | `TestLivePinControllers` |
+| 失败队列项在结果行不可见 | `TestDownloadQueueRowsAndItemText` |
+| 空初始路径落到当前目录而不是 home | `TestInitialPathResolution` |
+| 滚轮只移动内部 offset，光标不动 | `TestWheelScrollsResultList` |
+| 主题切换后文字背景残留旧调色板 | `TestThemeSwitchRepaintsTextBackgrounds` |
+| 设置表单焦点移出视口 | `TestSettingsKeyboardKeepsFocusVisible` |
+| 下载速率输入框无法输入小数点 | `TestSettingsFormCallbacksAndFocus` |
+| 零选项确认框越界 panic | `TestDialogEdgeCases` |
+| 重复 `Host.Start` 替换正在运行的 core（泄漏 HTTP/core） | `TestSecondStartIsIdempotent` |
+| `Startup` 失败后缓存半初始化 service | `TestStartFailureCanBeRetried` |
+| 离线 harness 调用控制器 nil panic | `TestOfflineControllersAreNoOps` |
+| 设置下拉框打开时 Esc 使 UI goroutine 死锁 | `TestLiveOpenDropdownConsumesEscape` |
+| Tab/Backtab 把焦点移到只读分区标题（焦点不可见） | `TestLiveSettingsTabSkipsReadOnlyRows` |
+| 点击描述行误触发多选/光标移动 | `TestDownloadClickZones`、`TestManageClickZones`、`TestFavoritesClickZones` |
+| 标题含 CJK 时点击命中偏位 | `TestDownloadTitleClickWideCharacters` |
+| 列表滚动后点击命中错行 | `TestDownloadClickAfterScrollingUsesOffset` |
+| 收藏列表刷新后光标跳回第 0 行 | `TestFavoritesClickZones` |
+| CJK 文案因宽字符续格被误判不存在 | `screenText` + `TestLiveLanguageDropdownRebuildsTheForm` |
+| 事件契约漂移被静默丢弃 | `TestUnhandledEventsAreLogged` |
 
 ## 6. 不做的事
 
-- 不测试真实网络下载（用 fake service，E2E 只测交互）。
-- 不断言具体颜色值（只断言 ANSI 完整性和文本）。
-- 不追求 100% 覆盖率；优先覆盖事件循环、弹窗、文件和设置这些高风险路径。
+- 不在单元测试里执行真实网络下载；live 测试只使用本地 sqlite、配置和临时实例目录。
+- 不断言具体颜色值，只断言布局、文本、调色板可区分性和 ANSI 完整性。
+- 不追求 100% 覆盖率；优先覆盖事件循环、弹窗、设置、收藏、队列和鼠标命中。

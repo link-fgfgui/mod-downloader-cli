@@ -132,6 +132,7 @@ func newFavoritesPage(a *App) *favoritesPage {
 	v.right.SetSelectedFunc(func(index int, _, _ string, _ rune) {
 		v.toggleItem(index)
 	})
+	v.right.SetRowClickHandlers(v.itemClickZones, v.toggleItem, v.selectOnlyItem)
 
 	v.box = tview.NewFlex().SetDirection(tview.FlexColumn).
 		AddItem(v.left, 0, 1, true).
@@ -444,6 +445,10 @@ func (v *favoritesPage) renderLeft() {
 
 func (v *favoritesPage) renderRight() {
 	selected := v.selectedList()
+	restore := ""
+	if idx := v.right.GetCurrentItem(); idx >= 0 && idx < len(v.items) {
+		restore = uistate.FavoriteKey(v.items[idx].FavoriteMod)
+	}
 	v.rebuilding = true
 	v.right.Clear()
 	if selected == nil {
@@ -457,11 +462,6 @@ func (v *favoritesPage) renderRight() {
 		v.right.AddItem(v.app.theme.tag(v.app.theme.Muted)+i18n.T("favorites.empty.noItems")+resetTag, "", 0, nil)
 		v.rebuilding = false
 		return
-	}
-	restore := ""
-	idx := v.right.GetCurrentItem()
-	if idx >= 0 && idx < len(v.items) {
-		restore = uistate.FavoriteKey(v.items[idx].FavoriteMod)
 	}
 	t := v.app.theme
 	for _, item := range v.items {
@@ -556,6 +556,32 @@ func (v *favoritesPage) toggleItem(index int) {
 		detail += "  " + i18n.T("favorites.references.count")
 	}
 	v.right.SetItemText(index, main, v.app.theme.tag(v.app.theme.Muted)+detail+resetTag)
+}
+
+// itemClickZones exposes the checkbox and title columns of one favorite row.
+func (v *favoritesPage) itemClickZones(index int) listRowZones {
+	if index < 0 || index >= len(v.items) {
+		return listRowZones{}
+	}
+	title := defaultString(v.items[index].Title, v.items[index].ModID)
+	start := plainWidth(checkBox(false) + " ")
+	return listRowZones{
+		Enabled:     true,
+		CheckboxEnd: plainWidth(checkBox(false)),
+		TitleStart:  start,
+		TitleEnd:    start + escapedWidth(title),
+	}
+}
+
+// selectOnlyItem replaces the multi-selection with this favorite, mirroring a
+// click on the title rather than on the checkbox.
+func (v *favoritesPage) selectOnlyItem(index int) {
+	if index < 0 || index >= len(v.items) {
+		return
+	}
+	v.selected = map[string]bool{uistate.FavoriteKey(v.items[index].FavoriteMod): true}
+	v.right.SetCurrentItem(index)
+	v.renderRight()
 }
 
 func (v *favoritesPage) promptCreate() {

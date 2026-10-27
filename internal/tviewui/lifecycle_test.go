@@ -207,19 +207,7 @@ func waitForTextGone(a *App, sim tcell.SimulationScreen, needle string, timeout 
 func screenContains(a *App, sim tcell.SimulationScreen, needle string) bool {
 	applied := make(chan bool, 1)
 	a.application.QueueUpdate(func() {
-		cells, width, height := sim.GetContents()
-		var b strings.Builder
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
-				cell := cells[y*width+x]
-				if len(cell.Runes) > 0 {
-					b.WriteRune(cell.Runes[0])
-				} else {
-					b.WriteByte(' ')
-				}
-			}
-		}
-		applied <- strings.Contains(b.String(), needle)
+		applied <- strings.Contains(screenText(sim), needle)
 	})
 	return <-applied
 }

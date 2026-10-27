@@ -108,10 +108,11 @@ func initialPath(save bool, start string) string {
 		}
 		return filepath.Join(home, filepath.Base(name))
 	}
-	dir := expandPath(strings.TrimSpace(start))
-	if dir == "" {
+	start = strings.TrimSpace(start)
+	if start == "" {
 		return home
 	}
+	dir := expandPath(start)
 	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
 		dir = filepath.Dir(dir)
 	}

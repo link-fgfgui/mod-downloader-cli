@@ -75,7 +75,8 @@ func TestWheelScrollsResultList(t *testing.T) {
 	}
 }
 
-// TestClickTogglesResultCheckbox ensures a click selects instead of installing.
+// TestClickTogglesResultCheckbox ensures the checkbox column selects instead of
+// installing. Title/description hit zones are covered in list_click_test.go.
 func TestClickTogglesResultCheckbox(t *testing.T) {
 	h := downloadResultsFixture(t, 5)
 	page := h.app.downloadPage()

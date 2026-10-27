@@ -208,6 +208,7 @@ type confirmView struct {
 	onDone  func(value string)
 	dialog  *dialog
 	scroll  int
+	closed  bool
 }
 
 func (a *App) openConfirm(title, body string, options []confirmOption, onDone func(value string)) {
@@ -242,10 +243,25 @@ func (a *App) openConfirm(title, body string, options []confirmOption, onDone fu
 	page := newCentered(box, 64, v.height())
 	d := &dialog{name: a.dialogName("confirm"), page: page, focus: v.body}
 	d.handleKey = v.handleKey
-	d.onClose = nil
+	// Esc closes the dialog without activating a button, but it still means
+	// "cancel": callers rely on onDone to release their in-flight state (e.g.
+	// the install confirmation clears its downloading key).
+	d.onClose = func() {
+		if v.closed {
+			return
+		}
+		v.closed = true
+		if v.onDone != nil {
+			v.onDone("cancel")
+		}
+	}
 	v.dialog = d
 	a.pushDialog(d)
-	a.application.SetFocus(v.buttons[0])
+	if len(v.buttons) > 0 {
+		a.application.SetFocus(v.buttons[0])
+	} else {
+		a.application.SetFocus(v.body)
+	}
 }
 
 func (v *confirmView) height() int {
@@ -308,6 +324,7 @@ func (v *confirmView) activate(index int) {
 		return
 	}
 	value := v.options[index].Value
+	v.closed = true
 	v.app.popDialogName(v.dialog.name)
 	if v.onDone != nil {
 		v.onDone(value)

@@ -74,11 +74,13 @@ func newDownloadPage(a *App) *downloadPage {
 	v.results.SetBorder(true)
 	v.results.SetTitle(i18n.T("nav.download"))
 	a.theme.styleBox(v.results.Box)
-	// A click toggles the checkbox; installing stays on Enter / the action bar
-	// so the mouse can select without side effects.
+	// A checkbox click toggles selection, a title click selects only that row;
+	// installing stays on Enter / the action bar so the mouse cannot install by
+	// accident.
 	v.results.SetSelectedFunc(func(index int, _, _ string, _ rune) {
 		v.toggleAt(index)
 	})
+	v.results.SetRowClickHandlers(v.rowClickZones, v.toggleAt, v.selectOnlyAt)
 	v.results.SetChangedFunc(func(index int, _, _ string, _ rune) {
 		v.onCursorChanged(index)
 	})
@@ -362,6 +364,14 @@ func (v *downloadPage) itemKey(result models.ModProject) string {
 }
 
 func (v *downloadPage) itemMain(idx *rowIndex, result models.ModProject, key string) string {
+	prefix, title, suffix := v.itemParts(idx, result, key)
+	return prefix + tview.Escape(title) + suffix
+}
+
+// itemParts builds the styled prefix (checkbox, state glyph), the plain title
+// and the styled suffix. Click hit testing uses the prefix width so glyph width
+// changes cannot shift the title column.
+func (v *downloadPage) itemParts(idx *rowIndex, result models.ModProject, key string) (prefix, title, suffix string) {
 	t := v.app.theme
 	check := checkBoxTagged(v.selected[key])
 	state := idx.stateOf(key)
@@ -379,7 +389,42 @@ func (v *downloadPage) itemMain(idx *rowIndex, result models.ModProject, key str
 			label = t.tag(t.Error) + uiText("failed") + resetTag
 		}
 	}
-	return check + " " + glyph + " " + tview.Escape(result.Title) + "   " + label
+	return check + " " + glyph + " ", result.Title, "   " + label
+}
+
+// rowClickZones exposes the checkbox and title columns of one result row.
+func (v *downloadPage) rowClickZones(index int) listRowZones {
+	results := v.app.search.SearchResults
+	if index < 0 || index >= len(results) {
+		return listRowZones{}
+	}
+	idx := v.buildRowIndex()
+	prefix, title, _ := v.itemParts(idx, results[index], v.itemKey(results[index]))
+	start := tviewWidth(prefix)
+	return listRowZones{
+		Enabled:     true,
+		CheckboxEnd: plainWidth(checkBox(false)),
+		TitleStart:  start,
+		TitleEnd:    start + escapedWidth(title),
+	}
+}
+
+// selectOnlyAt replaces the multi-selection with this row, mirroring a click on
+// the title rather than on the checkbox.
+func (v *downloadPage) selectOnlyAt(index int) {
+	results := v.app.search.SearchResults
+	if index < 0 || index >= len(results) {
+		return
+	}
+	key := v.itemKey(results[index])
+	if key == "" {
+		return
+	}
+	v.selected = map[string]bool{key: true}
+	v.anchor = index
+	v.hasAnchor = true
+	v.rebuildSelectionBar()
+	v.Refresh()
 }
 
 func (v *downloadPage) itemSecondary(result models.ModProject) string {
@@ -453,6 +498,7 @@ type rowIndex struct {
 	states  map[string]appstructs.ModDownloadButtonState
 	running map[string]appstructs.DownloadQueueItem
 	pending map[string]appstructs.DownloadQueueItem
+	failed  map[string]appstructs.DownloadQueueItem
 }
 
 func (v *downloadPage) buildRowIndex() *rowIndex {
@@ -462,6 +508,7 @@ func (v *downloadPage) buildRowIndex() *rowIndex {
 		states:  make(map[string]appstructs.ModDownloadButtonState, len(search.DownloadStates)),
 		running: make(map[string]appstructs.DownloadQueueItem),
 		pending: make(map[string]appstructs.DownloadQueueItem),
+		failed:  make(map[string]appstructs.DownloadQueueItem),
 	}
 	// First occurrence wins, mirroring SearchState.StateForResultKey.
 	for i, result := range search.SearchResults {
@@ -496,6 +543,10 @@ func (v *downloadPage) buildRowIndex() *rowIndex {
 		case "pending":
 			if _, ok := idx.pending[projectKey]; !ok {
 				idx.pending[projectKey] = item
+			}
+		case "failed":
+			if _, ok := idx.failed[projectKey]; !ok {
+				idx.failed[projectKey] = item
 			}
 		}
 	}
@@ -536,6 +587,14 @@ func (idx *rowIndex) queueItemFor(result models.ModProject) (appstructs.Download
 			continue
 		}
 		if item, ok := idx.pending[candidate]; ok {
+			return item, true
+		}
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if item, ok := idx.failed[candidate]; ok {
 			return item, true
 		}
 	}

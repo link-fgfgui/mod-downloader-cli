@@ -157,3 +157,10 @@ func truncate(value string, width int) string {
 func tviewWidth(value string) int {
 	return tview.TaggedStringWidth(value)
 }
+
+// plainWidth measures unstyled text (no tview color tags) in screen cells.
+func plainWidth(value string) int { return runewidth.StringWidth(value) }
+
+// escapedWidth measures literal text as tview renders it after escaping style
+// tag characters, matching list item widths for CJK and emoji sequences.
+func escapedWidth(value string) int { return tviewWidth(tview.Escape(value)) }

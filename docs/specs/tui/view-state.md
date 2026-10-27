@@ -82,15 +82,20 @@ by any adapter.
 - **Instance/target parity** (`dialogs_target.go`): the switcher lists
   `GetVersions()` for `SelectVersion`, offers refresh-mod / refresh-versions
   actions, and lets the user cycle the manual `[MC version | loader]` tuple
-  (which clears the selected instance, matching `minecraft.ts`). When
+  (which clears the selected instance, matching `minecraft.ts`). Instance rows
+  show only `VersionInfo.Name` (or `ID`); the picker's gray secondary line shows
+  `MC version | loader`, while the target dialog keeps them in dedicated rows.
+  When
   `selectedVersion.ConnectorAvailable` is true the Connector segment toggles
   `ToggleConnectorLoader()`.
 - Dialogs are a LIFO stack of full-screen `Pages` containing a centered bordered
   primitive. `Esc` closes only the top dialog, background clicks are blocked,
   and there is no scrim (tview pages are opaque).
-- Mouse: tview-native row/button clicks and wheel scrolling; **right-click** on a
-  reminder-only capsule clears reminders. Multi-selection uses `Space` rather
-  than Ctrl/Shift click.
+- Mouse: row/button clicks and wheel scrolling. Multi-select lists use precise hit
+  testing: the left checkbox toggles one row, clicking the title text selects only
+  that row, and the gray description line / other cells count as a miss. Keyboard
+  multi-selection still uses `Space` rather than Ctrl/Shift click. **Right-click**
+  on a reminder-only capsule clears reminders.
 - Responsive: Home rebuilds its metric-card columns from the main width and the
   queue dock reflows on resize. Golden frames cover 6 pages × 5 sizes × en/zh in
   `internal/tviewui/testdata/frames`; the SimulationScreen matrix asserts every

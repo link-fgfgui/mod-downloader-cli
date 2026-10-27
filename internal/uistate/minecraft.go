@@ -72,25 +72,18 @@ func (s MinecraftState) HasSelectedInstance() bool {
 	return s.SelectedVersion != nil && (s.SelectedVersion.Name != "" || s.SelectedVersion.ID != "")
 }
 
-// SelectedInstanceLabel mirrors selectedInstanceLabel.
+// SelectedInstanceLabel returns the instance's own display name. The active MC
+// version and loader are rendered separately by the shell; appending them here
+// duplicated the target whenever the instance name already contained it.
 func (s MinecraftState) SelectedInstanceLabel() string {
 	if s.SelectedVersion == nil {
 		return ""
 	}
-	name := s.SelectedVersion.Name
-	if name == "" {
-		name = s.SelectedVersion.ID
+	name := strings.TrimSpace(s.SelectedVersion.Name)
+	if name != "" {
+		return name
 	}
-	if name == "" {
-		return ""
-	}
-	parts := []string{}
-	for _, p := range []string{name, s.SelectedMinecraftVersion, s.SelectedModLoader} {
-		if p != "" {
-			parts = append(parts, p)
-		}
-	}
-	return strings.Join(parts, " / ")
+	return strings.TrimSpace(s.SelectedVersion.ID)
 }
 
 // Mods mirrors the `mods` getter.

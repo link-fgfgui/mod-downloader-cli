@@ -39,9 +39,26 @@ The CLI is quiet by default: only warnings and errors reach stderr. Pass
 `-v` / `--verbose` (before or after the subcommand) to enable debug logging.
 
 The full-screen TUI treats the terminal as unavailable for logs, so log lines
-never corrupt the screen. It writes info-level records to `mod-downloader.log`
-in the working directory; debug logging stays off. Set
+never corrupt the screen. It writes info-level records to the per-user cache
+directory (on Linux normally `~/.cache/mod-downloader/logs/mod-downloader.log`;
+`os.UserCacheDir()` is used on every platform). Logs rotate at 6 MiB and keep
+two historical files, so the default footprint is about 18 MiB. Set
 `[logging] enabled=false` in `mod-downloader.toml` to disable the file entirely.
+
+Override the location or rotation policy when needed:
+
+```toml
+[logging]
+force_file = true
+file = "/var/log/mod-downloader.log"
+max_size_mb = 6
+max_backups = 2
+```
+
+A negative `max_backups` disables historical files. Logs are never written to
+the current directory or a `mods` directory unless `file` points there.
+`make clean-artifacts` removes generated logs and build/test artifacts from the
+repository root.
 
 ## Quick Start
 
@@ -532,21 +549,27 @@ service.
 
 ## Development
 
-Run all tests:
+Run all tests (CLI + core):
 
 ```sh
-go test ./...
+make test
 ```
 
-Run CLI tests only:
+Run each module separately:
 
 ```sh
-go test ./cliapp ./cmd/mod-downloader-cli
+make test-cli   # go test ./...
+make test-core  # cd core && go test ./...
+make test-race  # both modules with the race detector
+make vet        # go vet for both modules
 ```
 
-Run core tests:
+The TUI has two opt-in suites that need real external resources:
 
 ```sh
-cd core
-go test ./...
+make test-live-api   # Mojang manifest + Modrinth search/version/download
+make test-tui-smoke  # build the binary and drive it through a tmux PTY
 ```
+
+See [`docs/specs/tui/testing.md`](docs/specs/tui/testing.md) for the full test
+matrix, offline/live harness contracts and coverage thresholds.

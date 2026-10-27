@@ -163,14 +163,7 @@ func (v *targetDialog) activate(index int) {
 }
 
 func (v *targetDialog) openInstancePicker() {
-	items := make([]selectItem, 0, len(v.app.mc.Versions))
-	for _, version := range v.app.mc.Versions {
-		items = append(items, selectItem{
-			Label:  versionLabel(version),
-			Value:  version.ID,
-			Detail: version.ID,
-		})
-	}
+	items := instancePickerItems(v.app.mc.Versions)
 	if len(items) == 0 {
 		v.app.toastT("home.status.notAvailable")
 		return
@@ -180,16 +173,38 @@ func (v *targetDialog) openInstancePicker() {
 	})
 }
 
+// instancePickerItems lists instances by their own name. MC version and loader
+// are shown in the secondary line so they do not duplicate the instance name.
+func instancePickerItems(versions []structs.VersionInfo) []selectItem {
+	items := make([]selectItem, 0, len(versions))
+	for _, version := range versions {
+		items = append(items, selectItem{
+			Label:  versionLabel(version),
+			Value:  version.ID,
+			Detail: instancePickerDetail(version),
+		})
+	}
+	return items
+}
+
+// instancePickerDetail is the gray secondary line: the instance's target. When
+// the manifest has no target, fall back to a distinct ID for disambiguation.
+func instancePickerDetail(version structs.VersionInfo) string {
+	detail := version.MinecraftVersion
+	if loader := uistate.MatchingModLoader(version.ModLoader); loader != "" {
+		if detail != "" {
+			detail += " | "
+		}
+		detail += loader
+	}
+	if detail == "" && version.ID != "" && version.ID != versionLabel(version) {
+		detail = version.ID
+	}
+	return detail
+}
+
 func versionLabel(version structs.VersionInfo) string {
-	name := defaultString(version.Name, version.ID)
-	target := version.MinecraftVersion
-	if version.ModLoader != "" {
-		target += " | " + version.ModLoader
-	}
-	if target != "" {
-		return name + "   " + target
-	}
-	return name
+	return defaultString(version.Name, version.ID)
 }
 
 // refresh is called by the controller when instance state changes.
