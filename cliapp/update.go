@@ -13,11 +13,11 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/providers"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/providers"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
 // resolveProjectsByHashesFn resolves SHA1 hashes to online projects. It is a
@@ -340,14 +340,14 @@ func (r runner) applyUpgradePlans(ctx context.Context, svc *appcore.Service, run
 
 		newFile := firstNonEmptyString(result.Result.FileName, plan.NewFile)
 		newPath := filepath.Join(runtime.TargetModsDir, filepath.Base(newFile))
-		oldPath := filepath.Join(runtime.TargetModsDir, plan.OldFile)
 
 		if plan.KeepDisabled && !localModPathDisabled(newPath) {
 			if err := renameToDisabled(newPath); err != nil {
 				plan.Note = err.Error()
 			}
 		}
-		removeSupersededFiles(oldPath)
+		// The downloader archives superseded jars as <file>.old during install;
+		// the CLI keeps those backups instead of deleting them.
 		plan.Executed = true
 	}
 }
@@ -358,22 +358,6 @@ func renameToDisabled(path string) error {
 		return nil
 	}
 	return os.Rename(path, path+".disabled")
-}
-
-// removeSupersededFiles deletes an old jar and any .old backup the downloader
-// may have created while archiving it.
-func removeSupersededFiles(oldPath string) {
-	if strings.TrimSpace(oldPath) == "" {
-		return
-	}
-	if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
-		// Best-effort cleanup; failures are non-fatal.
-		_ = err
-	}
-	matches, _ := filepath.Glob(oldPath + ".old*")
-	for _, match := range matches {
-		_ = os.Remove(match)
-	}
 }
 
 func writeOutdated(w io.Writer, value any) error {

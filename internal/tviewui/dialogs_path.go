@@ -9,7 +9,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/minecraft"
 )
 
 // pathDialog is the path-input file chooser: a single-line input with bash-like

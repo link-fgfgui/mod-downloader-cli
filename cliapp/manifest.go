@@ -12,9 +12,9 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
 type manifestHeader struct {

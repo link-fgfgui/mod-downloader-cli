@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
 
 	"github.com/link-fgfgui/mod-downloader-cli/cliapp/prompt"
 )

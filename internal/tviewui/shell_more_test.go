@@ -9,8 +9,9 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -24,7 +25,7 @@ func TestQueueDockRenderingBranches(t *testing.T) {
 	q.app.queueState.ActiveTab = uistate.QueueTabDownloads
 
 	// Header with progress, speed and an unknown-size active queue.
-	q.app.queueState.Queue = appstructs.DownloadQueueState{
+	q.app.queueState.Queue = appview.DownloadQueueState{
 		Active: true, Running: 1, Pending: 2,
 		TotalBytes: 200, BytesComplete: 50, BytesPerSecond: 1024,
 	}
@@ -41,7 +42,7 @@ func TestQueueDockRenderingBranches(t *testing.T) {
 	}
 
 	// Optional reminders add a badge to the tab label.
-	q.app.queueState.Queue.OptionalReminders = []appstructs.OptionalDependencyReminder{{ID: "r1"}}
+	q.app.queueState.Queue.OptionalReminders = []appview.OptionalDependencyReminder{{ID: "r1"}}
 	q.app.queueState.ActiveTab = uistate.QueueTabDownloads
 	q.renderTabs()
 	if !strings.Contains(q.opTab.GetLabel(), "(1)") {
@@ -57,7 +58,7 @@ func TestQueueDockRenderingBranches(t *testing.T) {
 
 	// Download rows fall back through title, file name, version id and id and
 	// append the failure reason.
-	q.app.queueState.Queue.Items = []appstructs.DownloadQueueItem{
+	q.app.queueState.Queue.Items = []appview.DownloadQueueItem{
 		{ID: "id-only", Status: "canceled"},
 		{ID: "reason", Status: "failed", FileName: "f.jar", Platform: "modrinth", Reason: "checksum"},
 		{ID: "version", Status: "pending", VersionID: "ver-1"},
@@ -84,9 +85,9 @@ func TestQueueDockRenderingBranches(t *testing.T) {
 	// Optional rows use the reminder id and dependency project id when titles
 	// are missing.
 	q.app.queueState.ActiveTab = uistate.QueueTabOptional
-	q.app.queueState.Queue.OptionalReminders = []appstructs.OptionalDependencyReminder{{
+	q.app.queueState.Queue.OptionalReminders = []appview.OptionalDependencyReminder{{
 		ID: "reminder-id",
-		Dependencies: []appstructs.OptionalDependencyCandidate{
+		Dependencies: []appview.OptionalDependencyCandidate{
 			{ProjectID: "dep-project"},
 			{Title: "Dep Title"},
 		},
@@ -128,7 +129,7 @@ func TestQueueDockRenderingBranches(t *testing.T) {
 
 	// Cursor preservation and a full refresh.
 	q.app.queueState.ActiveTab = uistate.QueueTabDownloads
-	q.app.queueState.Queue.Items = []appstructs.DownloadQueueItem{
+	q.app.queueState.Queue.Items = []appview.DownloadQueueItem{
 		{ID: "a", Status: "running", Title: "A"},
 		{ID: "b", Status: "pending", Title: "B"},
 	}
@@ -147,9 +148,9 @@ func TestQueueDockRenderingBranches(t *testing.T) {
 func TestQueueDockKeyboardAndHints(t *testing.T) {
 	h := newTestApp(t, 120, 40)
 	q := h.app.queue
-	q.app.queueState.Queue = appstructs.DownloadQueueState{
+	q.app.queueState.Queue = appview.DownloadQueueState{
 		Active: true, Running: 1,
-		Items: []appstructs.DownloadQueueItem{{ID: "a", Status: "running", Title: "A"}},
+		Items: []appview.DownloadQueueItem{{ID: "a", Status: "running", Title: "A"}},
 	}
 	q.SetOpen(true)
 	q.Refresh()
@@ -196,9 +197,9 @@ func TestQueueDockKeyboardAndHints(t *testing.T) {
 	}
 
 	// Optional-tab hints and actions with a reminder.
-	q.app.queueState.Queue.OptionalReminders = []appstructs.OptionalDependencyReminder{{
+	q.app.queueState.Queue.OptionalReminders = []appview.OptionalDependencyReminder{{
 		ID: "r1", MainTitle: "Reminder",
-		Dependencies: []appstructs.OptionalDependencyCandidate{{ProjectID: "dep"}},
+		Dependencies: []appview.OptionalDependencyCandidate{{ProjectID: "dep"}},
 	}}
 	q.app.queueState.ActiveTab = uistate.QueueTabOptional
 	q.Refresh()
@@ -314,7 +315,7 @@ func TestAppShellEdgeCases(t *testing.T) {
 	h.app.mc.SelectedVersion = nil
 
 	// Reminder-only queues can be cleared with Q.
-	h.app.queueState.Queue.OptionalReminders = []appstructs.OptionalDependencyReminder{{ID: "r"}}
+	h.app.queueState.Queue.OptionalReminders = []appview.OptionalDependencyReminder{{ID: "r"}}
 	h.rune('Q')
 	h.app.queueState.Queue.OptionalReminders = nil
 

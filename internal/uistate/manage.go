@@ -2,11 +2,10 @@ package uistate
 
 import (
 	"path/filepath"
-	"strconv"
 	"strings"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
 
 // ManageRowKind distinguishes regular mod rows from the incompatible toggle header.
@@ -23,12 +22,10 @@ type ManageRow struct {
 	Group ModGroup
 }
 
-// ModGroup aggregates every physical JAR record sharing one fileName/path/id.
-type ModGroup struct {
-	Primary structs.ModInfo
-	Strong  []structs.ModInfo
-	Jij     []structs.JijModInfo
-}
+// ModGroup is the core-owned aggregation of every physical JAR record sharing
+// one fileName/path/id. Grouping, JIJ de-duplication, search text and the
+// loader compatibility verdict all come from appcore.BuildLocalModGroups.
+type ModGroup = appview.LocalModGroup
 
 // Selectable reports whether the row participates in multi-select / Ctrl+A.
 func (r ManageRow) Selectable() bool { return r.Kind != RowKindIncompatibleToggle }
@@ -48,121 +45,6 @@ func (r ManageRow) RowKey() string {
 	return strings.Join(parts, "|")
 }
 
-// BuildGroups mirrors allGroupedMods: aggregate by fileName || path || id,
-// preserving first-seen order and collecting top-level (strong) declarations
-// plus deduplicated Jar-in-Jar entries.
-func BuildGroups(mods []structs.ModInfo) []ModGroup {
-	order := make([]string, 0, len(mods))
-	byKey := make(map[string]*ModGroup, len(mods))
-	hasPrimary := make(map[string]bool, len(mods))
-	for i := range mods {
-		mod := mods[i]
-		key := mod.FileName
-		if key == "" {
-			key = mod.Path
-		}
-		if key == "" {
-			key = mod.ID
-		}
-		group, ok := byKey[key]
-		if !ok {
-			group = &ModGroup{}
-			byKey[key] = group
-			order = append(order, key)
-		}
-		group.Strong = append(group.Strong, mod)
-		addJij(group, mod.JijMods)
-		if !hasPrimary[key] {
-			group.Primary = mod
-			hasPrimary[key] = true
-		}
-	}
-	groups := make([]ModGroup, 0, len(order))
-	for _, key := range order {
-		groups = append(groups, *byKey[key])
-	}
-	return groups
-}
-
-func addJij(group *ModGroup, mods []structs.JijModInfo) {
-	for _, m := range mods {
-		id := strings.TrimSpace(m.ID)
-		if id == "" {
-			continue
-		}
-		duplicate := false
-		for _, existing := range group.Jij {
-			if strings.EqualFold(existing.ID, id) {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
-			group.Jij = append(group.Jij, m)
-		}
-	}
-}
-
-// GroupLoaders returns the lowercased loader set declared by strong records.
-func GroupLoaders(group ModGroup) map[string]bool {
-	loaders := map[string]bool{}
-	for _, mod := range group.Strong {
-		for _, loader := range mod.Loaders {
-			if n := strings.ToLower(strings.TrimSpace(loader)); n != "" {
-				loaders[n] = true
-			}
-		}
-	}
-	return loaders
-}
-
-// IsGroupIncompatible mirrors isGroupIncompatible. The selected loader is
-// compared lowercased against the group's declared loaders.
-func IsGroupIncompatible(group ModGroup, selectedModLoader string) bool {
-	loaders := GroupLoaders(group)
-	selected := strings.ToLower(strings.TrimSpace(selectedModLoader))
-	return len(loaders) > 0 && selected != "" && !loaders[selected]
-}
-
-// SearchableGroupText mirrors searchableGroupText: recursively flatten every
-// string/number field of the group (including JIJ and categories) and
-// lower-case it for substring matching.
-func SearchableGroupText(group ModGroup) string {
-	values := []string{}
-	for _, mod := range group.Strong {
-		collectScalars(mod, &values)
-	}
-	collectScalars(group.Primary, &values)
-	for _, jij := range group.Jij {
-		values = append(values, jij.ID, jij.Name)
-	}
-	return strings.ToLower(strings.Join(values, "\n"))
-}
-
-func collectScalars(mod structs.ModInfo, out *[]string) {
-	appendIf := func(values ...string) {
-		for _, v := range values {
-			if v != "" {
-				*out = append(*out, v)
-			}
-		}
-	}
-	appendIf(mod.ID, mod.Name, mod.Version, mod.Description, mod.FileName, mod.Path, mod.SHA1,
-		mod.OnlineName, mod.OnlinePlatform, mod.OnlineProjectID, mod.OnlineSlug, mod.OnlineVersion,
-		mod.OnlineVersionID, mod.OnlineFileName, mod.IconURL)
-	appendIf(mod.Categories...)
-	appendIf(mod.Loaders...)
-	if mod.CfFingerprint != 0 {
-		appendIf(strconv.FormatUint(uint64(mod.CfFingerprint), 10))
-	}
-	for _, dep := range mod.Dependencies {
-		appendIf(dep.ModID, dep.Type)
-	}
-	for _, jij := range mod.JijMods {
-		appendIf(jij.ID, jij.Name)
-	}
-}
-
 // EnabledFilter enumerates the Manage status-filter options.
 const (
 	FilterAll      = "all"
@@ -179,7 +61,7 @@ func FilterGroups(groups []ModGroup, search string, enabledFilter string) []ModG
 	}
 	out := make([]ModGroup, 0, len(groups))
 	for _, group := range groups {
-		if needle != "" && !strings.Contains(SearchableGroupText(group), needle) {
+		if needle != "" && !strings.Contains(group.SearchText, needle) {
 			continue
 		}
 		if filter != FilterAll {
@@ -196,11 +78,11 @@ func FilterGroups(groups []ModGroup, search string, enabledFilter string) []ModG
 // PartitionAndBuildRows mirrors compatibleGroupedMods/incompatibleGroupedMods
 // plus managedRows: compatible groups first, then the toggle header (when any
 // incompatible group exists), then the incompatible groups when expanded.
-func PartitionAndBuildRows(groups []ModGroup, selectedModLoader string, expanded bool) (rows []ManageRow, incompatibleCount int) {
+func PartitionAndBuildRows(groups []ModGroup, expanded bool) (rows []ManageRow, incompatibleCount int) {
 	compatible := make([]ModGroup, 0, len(groups))
 	incompatible := make([]ModGroup, 0)
 	for _, group := range groups {
-		if IsGroupIncompatible(group, selectedModLoader) {
+		if group.Incompatible {
 			incompatible = append(incompatible, group)
 		} else {
 			compatible = append(compatible, group)
@@ -219,32 +101,6 @@ func PartitionAndBuildRows(groups []ModGroup, selectedModLoader string, expanded
 		}
 	}
 	return rows, len(incompatible)
-}
-
-// DisplayModName mirrors displayModName.
-func DisplayModName(group ModGroup) string {
-	if group.Primary.OnlineName != "" {
-		return group.Primary.OnlineName
-	}
-	if group.Primary.Name != "" {
-		return group.Primary.Name
-	}
-	return group.Primary.ID
-}
-
-// ModCategories returns trimmed, de-duplicated, order-preserving categories.
-func ModCategories(group ModGroup) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	for _, c := range group.Primary.Categories {
-		key := strings.ToLower(strings.TrimSpace(c))
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, key)
-	}
-	return out
 }
 
 // StrongModIDs mirrors strongModIds.
@@ -270,7 +126,7 @@ func StrongModNames(group ModGroup) []string {
 }
 
 // HasGroupedDetails mirrors hasGroupedDetails.
-func HasGroupedDetails(group ModGroup) bool { return len(group.Strong) > 1 || len(group.Jij) > 0 }
+func HasGroupedDetails(group ModGroup) bool { return len(group.Strong) > 1 || len(group.JIJ) > 0 }
 
 // CanReplaceVersion mirrors canReplaceVersion.
 func CanReplaceVersion(group ModGroup, hasSelectedInstance bool) bool {
@@ -308,11 +164,11 @@ func OnlineProjectFromGroup(group ModGroup) models.ModProject {
 		Platform:    platform,
 		ProjectID:   projectID,
 		Slug:        mod.OnlineSlug,
-		Title:       DisplayModName(group),
+		Title:       group.DisplayName,
 		Icon:        "mdi-package-variant",
 		IconURL:     mod.IconURL,
 		Description: mod.Description,
-		Categories:  ModCategories(group),
+		Categories:  group.Categories,
 	}
 }
 

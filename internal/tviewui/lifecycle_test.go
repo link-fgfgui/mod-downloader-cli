@@ -8,9 +8,8 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"go.uber.org/goleak"
 
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-
-	"github.com/link-fgfgui/mod-downloader-cli/internal/tuihost"
+	"github.com/link-fgfgui/mod-downloader/core/host"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
 
 // TestApplicationLifecycleNoLeaks starts and stops the real tview event loop on
@@ -18,8 +17,7 @@ import (
 func TestApplicationLifecycleNoLeaks(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	host := tuihost.New(tuihost.Options{})
-	a := New(host)
+	a := New(host.New(host.Options{}))
 	sim := tcell.NewSimulationScreen("UTF-8")
 	if err := sim.Init(); err != nil {
 		t.Fatalf("init simulation screen: %v", err)
@@ -55,20 +53,23 @@ func TestApplicationLifecycleNoLeaks(t *testing.T) {
 // snapshots collapses to the newest one while every other event survives in
 // order.
 func TestCompactEventsKeepsLatestQueueSnapshot(t *testing.T) {
-	events := []tuihost.Event{
-		{Kind: tuihost.EventDownloadCompleted},
-		{Kind: tuihost.EventDownloadQueueUpdated, Payload: "first"},
-		{Kind: tuihost.EventDownloadFailed},
-		{Kind: tuihost.EventDownloadQueueUpdated, Payload: "last"},
+	queue := func(payload string) pendingEvent {
+		return pendingEvent{queue: true, apply: func() { _ = payload }}
+	}
+	events := []pendingEvent{
+		{apply: func() {}},
+		queue("first"),
+		{apply: func() {}},
+		queue("last"),
 	}
 	got := compactEvents(events)
 	if len(got) != 3 {
 		t.Fatalf("expected 3 events, got %d: %+v", len(got), got)
 	}
-	if got[0].Kind != tuihost.EventDownloadCompleted || got[1].Kind != tuihost.EventDownloadFailed {
+	if got[0].queue || got[1].queue {
 		t.Fatalf("non-queue events lost or reordered: %+v", got)
 	}
-	if got[2].Kind != tuihost.EventDownloadQueueUpdated || got[2].Payload != "last" {
+	if !got[2].queue {
 		t.Fatalf("expected newest queue snapshot last, got %+v", got[2])
 	}
 }
@@ -78,8 +79,7 @@ func TestCompactEventsKeepsLatestQueueSnapshot(t *testing.T) {
 func TestEventPumpAppliesBatchedEvents(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	host := tuihost.New(tuihost.Options{})
-	a := New(host)
+	a := New(host.New(host.Options{}))
 	sim := tcell.NewSimulationScreen("UTF-8")
 	if err := sim.Init(); err != nil {
 		t.Fatalf("init simulation screen: %v", err)
@@ -104,9 +104,13 @@ func TestEventPumpAppliesBatchedEvents(t *testing.T) {
 		t.Fatal("application did not process its first update")
 	}
 
-	a.enqueueEvent(tuihost.Event{Kind: tuihost.EventDownloadCompleted})
-	a.enqueueEvent(tuihost.Event{Kind: tuihost.EventDownloadQueueUpdated, Payload: appstructs.DownloadQueueState{Running: 1, Active: true}})
-	a.enqueueEvent(tuihost.Event{Kind: tuihost.EventDownloadQueueUpdated, Payload: appstructs.DownloadQueueState{Running: 2, Active: true}})
+	a.enqueueEvent(false, a.handleDownloadCompleted)
+	a.enqueueEvent(true, func() {
+		a.handleQueueUpdate(appview.DownloadQueueState{Running: 1, Active: true})
+	})
+	a.enqueueEvent(true, func() {
+		a.handleQueueUpdate(appview.DownloadQueueState{Running: 2, Active: true})
+	})
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -137,8 +141,7 @@ func TestEventPumpAppliesBatchedEvents(t *testing.T) {
 func TestBusySpinnerReachesTheScreen(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	host := tuihost.New(tuihost.Options{})
-	a := New(host)
+	a := New(host.New(host.Options{}))
 	sim := tcell.NewSimulationScreen("UTF-8")
 	if err := sim.Init(); err != nil {
 		t.Fatalf("init simulation screen: %v", err)

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
 // TestManifestAndUpdateWriters covers the remaining human-readable writers that
@@ -186,23 +186,6 @@ func TestResolveHelpers(t *testing.T) {
 	if err := renameToDisabled(filePath + ".disabled"); err != nil {
 		t.Fatal(err)
 	}
-
-	oldPath := filepath.Join(dir, "old.jar")
-	backupPath := oldPath + ".old1"
-	if err := os.WriteFile(oldPath, []byte("old"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(backupPath, []byte("old"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	removeSupersededFiles(oldPath)
-	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
-		t.Fatalf("old jar still exists: %v", err)
-	}
-	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
-		t.Fatalf("old backup still exists: %v", err)
-	}
-	removeSupersededFiles("")
 }
 
 // TestInfoCommandLocalJar runs the info command on a local file: no online
@@ -245,13 +228,13 @@ func TestInfoCommandLocalJar(t *testing.T) {
 // online-info branch.
 func TestInfoWriterAndURLHelpers(t *testing.T) {
 	view := infoView{
-		Metadata: jarMetadata{
-			Loader: "fabric", ID: "sodium", Name: "Sodium", Version: "0.5.8",
+		Metadata: structs.ModInfo{
+			Loaders: []string{"fabric"}, ID: "sodium", Name: "Sodium", Version: "0.5.8",
 			Description: "fast renderer", Authors: []string{"jellysquid", "other"},
 			License: "LGPL-3.0", Environment: "client", MinecraftVersion: "1.20.1",
-			Depends:    []jarDependency{{ID: "fabric-api", Version: "*"}},
-			Recommends: []jarDependency{{ID: "indium", Version: "1.0"}},
-			Breaks:     []jarDependency{{ID: "optifine"}},
+			Dependencies: []structs.LocalModDependency{{ModID: "fabric-api", Version: "*"}},
+			Recommends:   []structs.LocalModDependency{{ModID: "indium", Version: "1.0"}},
+			Breaks:       []structs.LocalModDependency{{ModID: "optifine"}},
 		},
 		File:   jarFileInfo{Path: "/mods/sodium.jar", Name: "sodium.jar", Size: 5, SHA1: "aa", SHA512: "bb"},
 		Online: &projectURLInfo{Platform: "modrinth", Slug: "sodium", URL: "https://modrinth.com/mod/sodium"},

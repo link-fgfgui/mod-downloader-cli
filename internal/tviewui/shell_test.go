@@ -8,10 +8,10 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
 
 func projectFixture() models.ModProject {
@@ -306,11 +306,11 @@ func TestPathCompletion(t *testing.T) {
 
 func TestQueueDock(t *testing.T) {
 	h := newTestApp(t, 120, 40)
-	state := appstructs.DownloadQueueState{
+	state := appview.DownloadQueueState{
 		Active:  true,
 		Running: 1,
 		Pending: 1,
-		Items: []appstructs.DownloadQueueItem{
+		Items: []appview.DownloadQueueItem{
 			{ID: "a", Status: "running", Title: "Sodium", Platform: "modrinth", TotalBytes: 100, BytesComplete: 50},
 			{ID: "b", Status: "pending", Title: "Lithium", Platform: "modrinth"},
 		},
@@ -332,7 +332,7 @@ func TestQueueDock(t *testing.T) {
 		t.Fatal("q did not close the queue dock")
 	}
 
-	h.app.applyQueue(appstructs.DownloadQueueState{})
+	h.app.applyQueue(appview.DownloadQueueState{})
 	h.draw()
 	if h.app.queue.Visible() {
 		t.Fatal("queue stayed open after the cycle drained")
@@ -344,10 +344,10 @@ func TestQueueDock(t *testing.T) {
 func TestQueueDockWidthResponsive(t *testing.T) {
 	for _, width := range []int{50, 80, 120, 160} {
 		h := newTestApp(t, width, 30)
-		h.app.applyQueue(appstructs.DownloadQueueState{
+		h.app.applyQueue(appview.DownloadQueueState{
 			Active:  true,
 			Running: 1,
-			Items:   []appstructs.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
+			Items:   []appview.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
 		})
 		h.draw()
 		if !h.app.queue.Visible() {
@@ -380,10 +380,10 @@ func TestToastStatusBar(t *testing.T) {
 
 func TestQueueFocusRestoration(t *testing.T) {
 	h := newTestApp(t, 120, 40)
-	state := appstructs.DownloadQueueState{
+	state := appview.DownloadQueueState{
 		Active:  true,
 		Running: 1,
-		Items:   []appstructs.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
+		Items:   []appview.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
 	}
 	h.app.applyQueue(state)
 	h.draw()
@@ -416,10 +416,10 @@ func TestQueueFocusRestoration(t *testing.T) {
 
 func TestQueueDockOptionalTab(t *testing.T) {
 	h := newTestApp(t, 100, 30)
-	state := appstructs.DownloadQueueState{
+	state := appview.DownloadQueueState{
 		Active: false,
-		OptionalReminders: []appstructs.OptionalDependencyReminder{
-			{ID: "r1", MainTitle: "Create", Dependencies: []appstructs.OptionalDependencyCandidate{{ProjectID: "jei", Platform: "curseforge"}}},
+		OptionalReminders: []appview.OptionalDependencyReminder{
+			{ID: "r1", MainTitle: "Create", Dependencies: []appview.OptionalDependencyCandidate{{ProjectID: "jei", Platform: "curseforge"}}},
 		},
 	}
 	h.app.applyQueue(state)
@@ -440,10 +440,10 @@ func TestQueueDockOptionalTab(t *testing.T) {
 
 func TestQueueActionKeysAndTabs(t *testing.T) {
 	h := newTestApp(t, 120, 40)
-	h.app.applyQueue(appstructs.DownloadQueueState{
+	h.app.applyQueue(appview.DownloadQueueState{
 		Active:  true,
 		Running: 1,
-		Items: []appstructs.DownloadQueueItem{
+		Items: []appview.DownloadQueueItem{
 			{ID: "a", Status: "pending", Title: "Sodium", Cancelable: true, Retryable: true},
 		},
 	})
@@ -467,10 +467,10 @@ func TestQueueActionKeysAndTabs(t *testing.T) {
 
 func TestDialogStackEscClosesTopOnly(t *testing.T) {
 	h := newTestApp(t, 80, 24)
-	h.app.applyQueue(appstructs.DownloadQueueState{
+	h.app.applyQueue(appview.DownloadQueueState{
 		Active:  true,
 		Running: 1,
-		Items:   []appstructs.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
+		Items:   []appview.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
 	})
 	h.app.closeQueue()
 	h.draw()

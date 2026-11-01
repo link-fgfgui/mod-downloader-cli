@@ -1,6 +1,6 @@
 package uistate
 
-import appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+import appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 // Queue tab identifiers for the global download drawer.
 const (
@@ -12,7 +12,7 @@ const (
 // stores/downloadQueue.ts plus the drawer presentation rules documented in
 // download-queue-actions.md).
 type QueueState struct {
-	Queue                  appstructs.DownloadQueueState
+	Queue                  appview.DownloadQueueState
 	CompletedInActiveCycle bool
 	ActiveTab              string
 	Open                   bool
@@ -46,7 +46,7 @@ func (q *QueueState) NoteDownloadCompleted() { q.CompletedInActiveCycle = true }
 // ApplyQueue updates the snapshot and reports whether the terminal bell should
 // ring. A bell rings only once per drain cycle, and only when the cycle observed
 // at least one successful completion (failures/cancels do not ring).
-func (q *QueueState) ApplyQueue(next appstructs.DownloadQueueState) (ring bool) {
+func (q *QueueState) ApplyQueue(next appview.DownloadQueueState) (ring bool) {
 	previousActive := q.Queue.Active
 	q.Queue = next
 	if previousActive && !next.Active {

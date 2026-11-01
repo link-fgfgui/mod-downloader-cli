@@ -9,10 +9,10 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -466,7 +466,7 @@ func TestLiveFavoritesCrossVersionCopy(t *testing.T) {
 	l := newLiveApp(t)
 	svc := l.app.host.Service()
 
-	if err := storage.UpsertModPlatform(models.ModProject{
+	if err := storage.UpsertModProject(models.ModProject{
 		Platform: "modrinth", ProjectID: "mystery-sodium", Slug: "mystery-sodium",
 		Title: "Mystery Sodium", IconURL: "https://example.invalid/sodium.png",
 	}); err != nil {

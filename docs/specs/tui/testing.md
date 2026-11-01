@@ -7,7 +7,7 @@
 >
 > - 界面：`internal/tviewui/*_test.go`，golden 在 `internal/tviewui/testdata/frames/`
 > - 纯状态：`internal/uistate/uistate_test.go`、`uistate_extra_test.go`
-> - 宿主与事件映射：`internal/tuihost/host_test.go`、`host_lifecycle_test.go`
+> - 宿主与事件映射：`core/host/host_test.go`、`host_lifecycle_test.go`
 > - 真实事件循环（注入键鼠）：`internal/tviewui/input_loop_test.go`
 > - 离线控制器契约：`internal/tviewui/controller_offline_test.go`
 > - 真实 API（env 门控）：`internal/tviewui/live_api_test.go`
@@ -123,7 +123,7 @@
 
 [`controller_live_test.go`](../../../internal/tviewui/controller_live_test.go) 与
 [`controller_live_more_test.go`](../../../internal/tviewui/controller_live_more_test.go)
-使用真实 `tuihost.Host` + `appcore.Service`，在 SimulationScreen 上驱动控制器：
+使用真实 `host.Host` + `appcore.Service`，在 SimulationScreen 上驱动控制器：
 
 - 设置保存：主题/语言/精简/清理/MCIM/release/网络/缓存目录/API key；
 - 收藏：创建、重命名、固定、复制、图标、引用增删、页面级移除、导出失败提示；
@@ -170,15 +170,15 @@ make test-tui-smoke  # 真实终端
 
 把内部开发者视为 TUI/Host API 的用户，以下行为由测试锁定：
 
-- `tuihost.Host.Start` 串行且幂等：重复调用不会替换或泄漏 core/HTTP server；失败后
-  `Service()`/`Core()` 仍为 nil，可重试。`Shutdown` 可重复调用。
+- `host.Host.Start` 串行且幂等：重复调用不会替换或泄漏 core/HTTP server；失败后
+  `Service()` 仍为 nil，`StartupStatus()` 报告 typed 失败，可重试。`Shutdown` 可重复调用。
 - `App` 离线模式：未启动 core 时，所有控制器方法必须安全 no-op；新增控制器方法必须
   加入 `TestOfflineControllersAreNoOps`。
 - `App.service()` 是唯一的核心入口；不要在控制器里直接 `host.Service()` 绕过离线守卫。
 - 页面可选接口（`pageActivator`、`pageResizer`、`pageRestyler`、`pageClearer`、
   `pageDropdowns`）有各自的事件/焦点契约；新增实现必须补对应测试。
-- core 事件契约变更必须同步更新 `tuihost.emitCoreEvent`、映射测试与
-  `host-adapter.md`；未知事件/错误 payload 记录 Warn，不静默丢弃。
+- core 事件契约变更必须同步更新 `appcore.EventKind.Name()`、`core/host` 的
+  typed 分发测试与 `host-adapter.md`；未知事件/错误 payload 记录 Warn，不静默丢弃。
 - 真实输入用例走 `Application` 事件循环；离线 `testApp` 只用于纯渲染/焦点/命中测试。
 - 屏幕断言统一通过 `screenText`（跳过宽字符续格）。
 
@@ -236,7 +236,8 @@ make test-race
 make test-live-api     # 需要网络
 make test-tui-smoke    # 需要 tmux
 go test ./internal/tviewui -run TestGoldenPages
-go test ./internal/tviewui ./internal/uistate ./internal/tuihost ./internal/i18n -cover
+go test ./internal/tviewui ./internal/uistate ./internal/i18n -cover
+(cd core && go test ./host ./appcore ./configs -cover)
 ```
 
 当前基线（2026-10，`go test ./... -cover`）：
@@ -245,7 +246,7 @@ go test ./internal/tviewui ./internal/uistate ./internal/tuihost ./internal/i18n
 | :--- | ---: |
 | `internal/tviewui` | 93.4% |
 | `internal/uistate` | 97.7% |
-| `internal/tuihost` | 98.1% |
+| `core/host` | 98.1% |
 | `internal/i18n` | 100.0% |
 | `cliapp/prompt` | 79.6% |
 
@@ -266,7 +267,7 @@ go test ./internal/tviewui ./internal/uistate ./internal/tuihost ./internal/i18n
 | `tviewui.Run` / `run` | 需要真实 TTY；由 `make test-tui-smoke` 覆盖 |
 | `managePage.copySelection` | 依赖系统剪贴板 |
 | 真实 Modrinth/Mojang 网络 | 默认 hermetic；由 `make test-live-api` 覆盖 |
-| `tuihost.Start` 的真实网络失败分支 | 用 `startCore` seam 覆盖状态清理与重试；不依赖外网故障 |
+| `host.Start` 的真实网络失败分支 | 用 `startCore` seam 覆盖状态清理与重试；不依赖外网故障 |
 
 ## 5. 历史缺陷回归清单
 

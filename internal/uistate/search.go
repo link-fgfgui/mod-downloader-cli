@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
 
 // SearchPageSize mirrors `searchPageSize` in stores/downloadSearch.ts.
@@ -54,7 +54,7 @@ type SearchState struct {
 	NextSearchOffset           int
 	ActiveSearchAppend         bool
 	AppendBaseResults          []models.ModProject
-	DownloadStates             []appstructs.ModDownloadButtonState
+	DownloadStates             []appview.ModDownloadButtonState
 	ActiveDownloadStateRequest string
 	DownloadingKeys            map[string]bool
 	downloadQueueMembership    string
@@ -127,7 +127,7 @@ func (s *SearchState) FinishSearch(requestID string) {
 // ApplySearchUpdate mirrors the `search-mods-updated` handler. Updates carrying
 // a stale requestID are dropped (race protection). It returns true when states
 // should be refreshed (i.e. the update finished loading).
-func (s *SearchState) ApplySearchUpdate(update appstructs.SearchModsUpdate) (accepted, shouldRefreshStates bool) {
+func (s *SearchState) ApplySearchUpdate(update appview.SearchModsUpdate) (accepted, shouldRefreshStates bool) {
 	if update.RequestID != s.ActiveSearchRequestID {
 		return false, false
 	}
@@ -183,7 +183,7 @@ func (s *SearchState) ApplyExtensionResults(results []models.ModProject) bool {
 // ApplyQueueMembership mirrors `downloadQueueMembershipKey` diffing: it returns
 // true only when the membership key changed, so callers can skip redundant
 // download-state refreshes.
-func (s *SearchState) ApplyQueueMembership(items []appstructs.DownloadQueueItem) bool {
+func (s *SearchState) ApplyQueueMembership(items []appview.DownloadQueueItem) bool {
 	membership := QueueMembershipKey(items)
 	if membership == s.downloadQueueMembership {
 		return false
@@ -196,7 +196,7 @@ func (s *SearchState) ApplyQueueMembership(items []appstructs.DownloadQueueItem)
 func (s *SearchState) ClearQueueMembership() { s.downloadQueueMembership = "" }
 
 // QueueMembershipKey builds the `id:status` sorted join used to detect queue changes.
-func QueueMembershipKey(items []appstructs.DownloadQueueItem) string {
+func QueueMembershipKey(items []appview.DownloadQueueItem) string {
 	parts := make([]string, 0, len(items))
 	for _, item := range items {
 		parts = append(parts, item.ID+":"+item.Status)
@@ -243,7 +243,7 @@ func (s *SearchState) EndDownloading(key string) {
 }
 
 // DisabledDownloadStates mirrors disabledDownloadStates(reason).
-func (s *SearchState) DisabledDownloadStates(reason string) []appstructs.ModDownloadButtonState {
+func (s *SearchState) DisabledDownloadStates(reason string) []appview.ModDownloadButtonState {
 	if reason == "" {
 		reason = "noSelectedVersion"
 	}
@@ -251,10 +251,10 @@ func (s *SearchState) DisabledDownloadStates(reason string) []appstructs.ModDown
 	if reason != "noSelectedVersion" {
 		icon = "mdi-alert-circle-outline"
 	}
-	states := make([]appstructs.ModDownloadButtonState, 0, len(s.SearchResults))
+	states := make([]appview.ModDownloadButtonState, 0, len(s.SearchResults))
 	for i := range s.SearchResults {
 		r := s.SearchResults[i]
-		states = append(states, appstructs.ModDownloadButtonState{
+		states = append(states, appview.ModDownloadButtonState{
 			Key:      ModIDFromResult(r),
 			Status:   reason,
 			Disabled: true,

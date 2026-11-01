@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/link-fgfgui/mod-downloader-core/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/minecraft"
 )
 
 func TestAnalyzeVerifyMissingDependency(t *testing.T) {

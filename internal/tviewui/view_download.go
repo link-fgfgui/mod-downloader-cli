@@ -6,8 +6,9 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -441,16 +442,16 @@ func (v *downloadPage) itemSecondary(result models.ModProject) string {
 		"  " + t.tag(t.Muted) + tview.Escape(right) + resetTag
 }
 
-func (v *downloadPage) stateFor(key string) appstructs.ModDownloadButtonState {
+func (v *downloadPage) stateFor(key string) appview.ModDownloadButtonState {
 	for _, state := range v.app.search.DownloadStates {
 		if state.Key == key {
 			return state
 		}
 	}
-	return appstructs.ModDownloadButtonState{}
+	return appview.ModDownloadButtonState{}
 }
 
-func downloadStateGlyph(t Theme, state appstructs.ModDownloadButtonState) (string, string) {
+func downloadStateGlyph(t Theme, state appview.ModDownloadButtonState) (string, string) {
 	switch state.Status {
 	case "installed":
 		return t.tag(t.Success) + "✓" + resetTag, t.tag(t.Success) + uiText("stateInstalled") + resetTag
@@ -471,7 +472,7 @@ func downloadStateGlyph(t Theme, state appstructs.ModDownloadButtonState) (strin
 	}
 }
 
-func downloadProgressLabel(t Theme, item appstructs.DownloadQueueItem) string {
+func downloadProgressLabel(t Theme, item appview.DownloadQueueItem) string {
 	if item.TotalBytes > 0 {
 		return t.tag(t.Secondary) + formatPercent(item.BytesComplete, item.TotalBytes) + resetTag
 	}
@@ -495,20 +496,20 @@ func identityOfProject(result models.ModProject) projectIdentity {
 // row made it quadratic, which froze the UI on long (accumulated) result lists.
 type rowIndex struct {
 	keys    map[projectIdentity]string
-	states  map[string]appstructs.ModDownloadButtonState
-	running map[string]appstructs.DownloadQueueItem
-	pending map[string]appstructs.DownloadQueueItem
-	failed  map[string]appstructs.DownloadQueueItem
+	states  map[string]appview.ModDownloadButtonState
+	running map[string]appview.DownloadQueueItem
+	pending map[string]appview.DownloadQueueItem
+	failed  map[string]appview.DownloadQueueItem
 }
 
 func (v *downloadPage) buildRowIndex() *rowIndex {
 	search := v.app.search
 	idx := &rowIndex{
 		keys:    make(map[projectIdentity]string, len(search.SearchResults)),
-		states:  make(map[string]appstructs.ModDownloadButtonState, len(search.DownloadStates)),
-		running: make(map[string]appstructs.DownloadQueueItem),
-		pending: make(map[string]appstructs.DownloadQueueItem),
-		failed:  make(map[string]appstructs.DownloadQueueItem),
+		states:  make(map[string]appview.ModDownloadButtonState, len(search.DownloadStates)),
+		running: make(map[string]appview.DownloadQueueItem),
+		pending: make(map[string]appview.DownloadQueueItem),
+		failed:  make(map[string]appview.DownloadQueueItem),
 	}
 	// First occurrence wins, mirroring SearchState.StateForResultKey.
 	for i, result := range search.SearchResults {
@@ -562,13 +563,13 @@ func (idx *rowIndex) keyOf(result models.ModProject) string {
 }
 
 // stateOf mirrors downloadPage.stateFor.
-func (idx *rowIndex) stateOf(key string) appstructs.ModDownloadButtonState {
+func (idx *rowIndex) stateOf(key string) appview.ModDownloadButtonState {
 	return idx.states[key]
 }
 
 // queueItemFor returns the running entry for a result, falling back to the
 // first pending one.
-func (idx *rowIndex) queueItemFor(result models.ModProject) (appstructs.DownloadQueueItem, bool) {
+func (idx *rowIndex) queueItemFor(result models.ModProject) (appview.DownloadQueueItem, bool) {
 	candidates := [3]string{
 		strings.ToLower(strings.TrimSpace(result.ProjectID)),
 		strings.ToLower(strings.TrimSpace(result.ID)),
@@ -598,7 +599,7 @@ func (idx *rowIndex) queueItemFor(result models.ModProject) (appstructs.Download
 			return item, true
 		}
 	}
-	return appstructs.DownloadQueueItem{}, false
+	return appview.DownloadQueueItem{}, false
 }
 
 func (v *downloadPage) onCursorChanged(index int) {

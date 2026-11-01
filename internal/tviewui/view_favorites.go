@@ -6,9 +6,9 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -53,11 +53,11 @@ func favoriteDraftFromGroup(group uistate.ModGroup, app *App) favoriteDraft {
 		ModID:            primary.OnlineProjectID,
 		MinecraftVersion: mcVersion,
 		ModLoader:        app.mc.SelectedModLoader,
-		Title:            uistate.DisplayModName(group),
+		Title:            group.DisplayName,
 		Slug:             primary.OnlineSlug,
 		IconURL:          primary.IconURL,
 		Description:      primary.Description,
-		Categories:       uistate.ModCategories(group),
+		Categories:       group.Categories,
 	}
 }
 
@@ -346,13 +346,13 @@ func (v *favoritesPage) SetScope(mcVersion, modLoader string) {
 }
 
 func (v *favoritesPage) visibleLists() []storage.FavoriteList {
-	pinned, ungrouped := uistate.PartitionLists(v.lists, v.mcVersion, v.modLoader)
-	return append(pinned, ungrouped...)
+	overview := appcore.BuildFavoriteOverview(v.lists, v.mcVersion, v.modLoader)
+	return append(overview.Pinned, overview.Ungrouped...)
 }
 
 func (v *favoritesPage) selectedList() *storage.FavoriteList {
 	for i := range v.lists {
-		if v.lists[i].ID == v.selectedListID && uistate.ListMatchesScope(v.lists[i], v.mcVersion, v.modLoader) {
+		if v.lists[i].ID == v.selectedListID && appcore.FavoriteListMatchesScope(v.lists[i], v.mcVersion, v.modLoader) {
 			return &v.lists[i]
 		}
 	}
@@ -368,7 +368,7 @@ func (v *favoritesPage) setLists(lists []storage.FavoriteList, contents storage.
 		v.selected = map[string]bool{}
 	}
 	if listID != "" && listID == v.selectedListID {
-		v.items = uistate.FavoriteContentsForScope(contents, v.mcVersion, v.modLoader).Mods
+		v.items = appcore.FilterFavoriteContents(contents, v.mcVersion, v.modLoader).Mods
 	}
 	if listID == "" && v.selectedListID == "" {
 		v.items = nil
@@ -381,7 +381,7 @@ func (v *favoritesPage) setContents(listID string, contents storage.FavoriteList
 	if listID != v.selectedListID {
 		return
 	}
-	v.items = uistate.FavoriteContentsForScope(contents, v.mcVersion, v.modLoader).Mods
+	v.items = appcore.FilterFavoriteContents(contents, v.mcVersion, v.modLoader).Mods
 	v.renderRight()
 }
 

@@ -6,9 +6,10 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -67,10 +68,10 @@ func TestMainWidthWithAndWithoutQueue(t *testing.T) {
 	if got, want := h.app.mainWidth(), 100-sidebarWidth(100); got != want {
 		t.Fatalf("mainWidth=%d, want %d", got, want)
 	}
-	h.app.applyQueue(appstructs.DownloadQueueState{
+	h.app.applyQueue(appview.DownloadQueueState{
 		Active:  true,
 		Running: 1,
-		Items:   []appstructs.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
+		Items:   []appview.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
 	})
 	h.draw()
 	if got, want := h.app.mainWidth(), 100-sidebarWidth(100)-h.app.queue.Width(); got != want {
@@ -128,10 +129,10 @@ func TestQueueCapsuleFormatting(t *testing.T) {
 		want string
 	}{
 		{"empty", uistate.NewQueueState(), "↓ 0/0"},
-		{"running", uistate.QueueState{Queue: appstructs.DownloadQueueState{Active: true, Running: 2, Pending: 3}}, "↓ 2/3"},
+		{"running", uistate.QueueState{Queue: appview.DownloadQueueState{Active: true, Running: 2, Pending: 3}}, "↓ 2/3"},
 		{
 			name: "progress and speed",
-			q: uistate.QueueState{Queue: appstructs.DownloadQueueState{
+			q: uistate.QueueState{Queue: appview.DownloadQueueState{
 				Active: true, Running: 1, Pending: 1,
 				TotalBytes: 100, BytesComplete: 50, BytesPerSecond: 1024 * 1024,
 			}},
@@ -139,7 +140,7 @@ func TestQueueCapsuleFormatting(t *testing.T) {
 		},
 		{
 			name: "reminder count",
-			q: uistate.QueueState{Queue: appstructs.DownloadQueueState{
+			q: uistate.QueueState{Queue: appview.DownloadQueueState{
 				Active: true, Running: 1, MessageCount: 2,
 			}},
 			want: "↓ 1/0 🔔2",
@@ -197,10 +198,10 @@ func TestToastSupportsTranslationAndIgnoresBlank(t *testing.T) {
 
 func TestGlobalEscapeOrder(t *testing.T) {
 	h := newTestApp(t, 120, 40)
-	h.app.applyQueue(appstructs.DownloadQueueState{
+	h.app.applyQueue(appview.DownloadQueueState{
 		Active:  true,
 		Running: 1,
-		Items:   []appstructs.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
+		Items:   []appview.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
 	})
 	h.draw()
 	if !h.app.queue.Visible() {
@@ -228,10 +229,10 @@ func TestGlobalEscapeOrder(t *testing.T) {
 
 func TestSwitchViewClosesQueueAndFocusesPage(t *testing.T) {
 	h := newTestApp(t, 120, 40)
-	h.app.applyQueue(appstructs.DownloadQueueState{
+	h.app.applyQueue(appview.DownloadQueueState{
 		Active:  true,
 		Running: 1,
-		Items:   []appstructs.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
+		Items:   []appview.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
 	})
 	h.draw()
 	if !h.app.queue.Visible() {
@@ -400,30 +401,30 @@ func TestStartupNoticeAndAfterStartHelpers(t *testing.T) {
 // auto-close rule when a user-opened dock drains.
 func TestApplyQueueAutoOpenAndClose(t *testing.T) {
 	h := newTestApp(t, 120, 40)
-	h.app.applyQueue(appstructs.DownloadQueueState{
+	h.app.applyQueue(appview.DownloadQueueState{
 		Active:  true,
 		Running: 1,
-		Items:   []appstructs.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
+		Items:   []appview.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
 	})
 	if !h.app.queue.Visible() || !h.app.queueAutoOpened {
 		t.Fatal("active queue did not auto-open")
 	}
-	h.app.applyQueue(appstructs.DownloadQueueState{})
+	h.app.applyQueue(appview.DownloadQueueState{})
 	if h.app.queue.Visible() {
 		t.Fatal("drained auto-opened dock stayed open")
 	}
 	// A user-opened dock stays open after the cycle drains.
-	h.app.applyQueue(appstructs.DownloadQueueState{
+	h.app.applyQueue(appview.DownloadQueueState{
 		Active:  true,
 		Running: 1,
-		Items:   []appstructs.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
+		Items:   []appview.DownloadQueueItem{{ID: "a", Status: "running", Title: "Sodium"}},
 	})
 	h.app.closeQueue()
 	h.rune('q')
 	if !h.app.queue.Visible() {
 		t.Fatal("q did not open the dock")
 	}
-	h.app.applyQueue(appstructs.DownloadQueueState{})
+	h.app.applyQueue(appview.DownloadQueueState{})
 	if !h.app.queue.Visible() {
 		t.Fatal("user-opened dock was auto-closed")
 	}
@@ -468,7 +469,7 @@ func TestDownloadErrorI18nMapping(t *testing.T) {
 
 func TestQueuePreviewHelpers(t *testing.T) {
 	h := newTestApp(t, 100, 30)
-	h.app.queueState.Queue.Items = []appstructs.DownloadQueueItem{
+	h.app.queueState.Queue.Items = []appview.DownloadQueueItem{
 		{ID: "a", ProjectID: "Sodium", Status: "running", Title: "Sodium"},
 		{ID: "b", ProjectID: "lithium", Status: "pending", Title: "Lithium"},
 	}
@@ -485,11 +486,11 @@ func TestQueuePreviewHelpers(t *testing.T) {
 	if item, ok := idx.queueItemFor(models.ModProject{ID: "lithium", Platform: "modrinth", ProjectID: "lithium"}); !ok || item.ID != "b" {
 		t.Fatalf("pending item lookup=%+v ok=%v", item, ok)
 	}
-	label := downloadProgressLabel(h.app.theme, appstructs.DownloadQueueItem{TotalBytes: 100, BytesComplete: 25})
+	label := downloadProgressLabel(h.app.theme, appview.DownloadQueueItem{TotalBytes: 100, BytesComplete: 25})
 	if !strings.Contains(label, "25%") {
 		t.Fatalf("progress label=%q", label)
 	}
-	if label := downloadProgressLabel(h.app.theme, appstructs.DownloadQueueItem{}); !strings.Contains(label, uiText("loading")) {
+	if label := downloadProgressLabel(h.app.theme, appview.DownloadQueueItem{}); !strings.Contains(label, uiText("loading")) {
 		t.Fatalf("unknown size label=%q", label)
 	}
 }

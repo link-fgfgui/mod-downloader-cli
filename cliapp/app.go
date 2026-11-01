@@ -14,13 +14,13 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/logging"
-	"github.com/link-fgfgui/mod-downloader-core/minecraft"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/logging"
+	"github.com/link-fgfgui/mod-downloader/core/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 
 	"github.com/link-fgfgui/mod-downloader-cli/cliapp/prompt"
 )
@@ -618,7 +618,7 @@ func locateRuntimeDir(dir string) (string, structs.VersionInfo, bool, error) {
 	}
 
 	for _, gameDir := range candidateGameDirs(dir) {
-		versions := appcore.New(appcore.Options{}).LoadVersionsFromDisk(gameDir)
+		versions := minecraft.LoadLauncherVersions(gameDir, minecraft.LoadGameDirVersions)
 		for _, version := range versions {
 			if !appcore.ValidMinecraftInstance(version) {
 				continue
@@ -702,7 +702,7 @@ func inferVersionInfoForModsDir(modsDir string) (structs.VersionInfo, bool) {
 	}
 	modsDir = cleanAbsPath(modsDir)
 	for _, root := range candidateMinecraftRootsForModsDir(modsDir) {
-		versions := appcore.New(appcore.Options{}).LoadVersionsFromDisk(root)
+		versions := minecraft.LoadLauncherVersions(root, minecraft.LoadGameDirVersions)
 		for _, version := range versions {
 			versionModsDir := filepath.Join(minecraft.VersionDirPath(root, version), "mods")
 			if samePath(versionModsDir, modsDir) {

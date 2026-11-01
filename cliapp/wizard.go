@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 
 	"github.com/link-fgfgui/mod-downloader-cli/cliapp/prompt"
 )

@@ -1,7 +1,7 @@
 package tviewui
 
 import (
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
 )
@@ -144,12 +144,12 @@ func (a *App) saveCacheDir(dir string) {
 	})
 }
 
-func (a *App) saveApiKeys(req appstructs.SaveApiKeysRequest) {
+func (a *App) saveAPIKeys(req appstructs.SaveAPIKeysRequest) {
 	svc := a.service()
 	if svc == nil {
 		return
 	}
-	view := svc.SaveApiKeys(req)
+	view := svc.SaveAPIKeys(req)
 	a.uiUpdate(func() {
 		a.applySettings(view)
 		a.settingsPage().cfKey = uistate.KeyDraft{}

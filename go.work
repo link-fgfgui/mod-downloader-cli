@@ -1,0 +1,13 @@
+go 1.26.0
+
+// Development workspace: the CLI and the GUI share the one canonical core
+// checkout, so the `core` symlink is only a fallback for tooling that does not
+// read go.work. CI checks out both repositories before building.
+use (
+	.
+	../mod-downloader-gui-v3
+)
+
+// Both module files carry `replace core => ./core`; the workspace overrides
+// them with the canonical checkout shared by both modules.
+replace github.com/link-fgfgui/mod-downloader/core => ../mod-downloader-gui-v3/core

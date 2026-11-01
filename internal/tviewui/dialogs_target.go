@@ -4,7 +4,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"

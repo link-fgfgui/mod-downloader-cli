@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 )
 
 // TestConfigCommandTextOutput covers the human-readable config writers that

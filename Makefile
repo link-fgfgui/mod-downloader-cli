@@ -1,25 +1,35 @@
-.PHONY: build test test-cli test-core test-all test-race vet golden-update test-live-api test-tui-smoke clean-artifacts clean-user-data
+.PHONY: build test test-cli test-core test-all test-race vet golden-update test-live-api test-tui-smoke bootstrap workspace clean-artifacts clean-user-data
 
 build:
 	go build ./cmd/mod-downloader-cli
+
+# Restore the ./core symlink for tools that do not read go.work.
+bootstrap:
+	./scripts/bootstrap-core.sh
+
+# Print the active workspace file (CLI + GUI + shared core).
+workspace:
+	@go env GOWORK
 
 test: test-cli test-core
 
 test-cli:
 	go test ./...
 
+# The workspace resolves core from the sibling checkout; use the module pattern
+# so this also works when ./core is the fallback symlink.
 test-core:
-	cd core && go test ./...
+	go test github.com/link-fgfgui/mod-downloader/core/...
 
 test-all: test-cli test-core
 
 test-race:
 	go test -race ./...
-	cd core && go test -race ./...
+	go test -race github.com/link-fgfgui/mod-downloader/core/...
 
 vet:
 	go vet ./...
-	cd core && go vet ./...
+	go vet github.com/link-fgfgui/mod-downloader/core/...
 
 golden-update:
 	go test ./internal/tviewui -run Golden -update

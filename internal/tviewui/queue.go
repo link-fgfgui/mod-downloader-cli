@@ -6,7 +6,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -245,20 +245,20 @@ func (q *queueDock) clearOptional() bool {
 	return true
 }
 
-func (q *queueDock) currentItem() (appstructs.DownloadQueueItem, bool) {
+func (q *queueDock) currentItem() (appview.DownloadQueueItem, bool) {
 	items := q.app.queueState.Queue.Items
 	idx := q.list.GetCurrentItem()
 	if idx < 0 || idx >= len(items) {
-		return appstructs.DownloadQueueItem{}, false
+		return appview.DownloadQueueItem{}, false
 	}
 	return items[idx], true
 }
 
-func (q *queueDock) currentReminder() (appstructs.OptionalDependencyReminder, bool) {
+func (q *queueDock) currentReminder() (appview.OptionalDependencyReminder, bool) {
 	reminders := q.app.queueState.Queue.OptionalReminders
 	idx := q.list.GetCurrentItem()
 	if idx < 0 || idx >= len(reminders) {
-		return appstructs.OptionalDependencyReminder{}, false
+		return appview.OptionalDependencyReminder{}, false
 	}
 	return reminders[idx], true
 }

@@ -7,8 +7,9 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -291,10 +292,10 @@ func (v *managePage) Refresh() {
 
 func (v *managePage) buildRows() {
 	mods := v.app.mc.Mods()
-	v.groups = uistate.BuildGroups(mods)
+	v.groups = appcore.BuildLocalModGroups(mods, v.app.mc.SelectedModLoader)
 	filtered := uistate.FilterGroups(v.groups, strings.ToLower(strings.TrimSpace(v.search.GetText())), v.filter)
 	v.filtered = filtered
-	rows, _ := uistate.PartitionAndBuildRows(filtered, v.app.mc.SelectedModLoader, v.expanded)
+	rows, _ := uistate.PartitionAndBuildRows(filtered, v.expanded)
 	v.rows = rows
 	// Drop selections whose rows are no longer visible so the action bar cannot
 	// claim a selection the user cannot see.
@@ -386,7 +387,7 @@ func (v *managePage) rebuildListAt(restoreKey string) {
 func (v *managePage) rowMain(row uistate.ManageRow) string {
 	t := v.app.theme
 	if row.Kind == uistate.RowKindIncompatibleToggle {
-		_, incompatible := uistate.PartitionAndBuildRows(v.filtered, v.app.mc.SelectedModLoader, v.expanded)
+		_, incompatible := uistate.PartitionAndBuildRows(v.filtered, v.expanded)
 		hint := i18n.T("manage.incompatible.collapsed")
 		if v.expanded {
 			hint = i18n.T("manage.incompatible.expanded")
@@ -400,11 +401,11 @@ func (v *managePage) rowMain(row uistate.ManageRow) string {
 	if group.Primary.Enabled {
 		state = t.tag(t.Success) + "●" + resetTag
 	}
-	main := check + " " + state + " " + tview.Escape(uistate.DisplayModName(group))
+	main := check + " " + state + " " + tview.Escape(group.DisplayName)
 	if group.Primary.Version != "" {
 		main += "   " + t.tag(t.Secondary) + tview.Escape(group.Primary.Version) + resetTag
 	}
-	categories := uistate.ModCategories(group)
+	categories := group.Categories
 	if len(categories) > 0 && v.app.mainWidth() > 70 {
 		main += " " + t.tag(t.Muted) + "[" + tview.Escape(categories[0]) + "]" + resetTag
 	}
@@ -472,7 +473,7 @@ func (v *managePage) rowClickZones(index int) listRowZones {
 	}
 	row := v.rows[index]
 	if row.Kind == uistate.RowKindIncompatibleToggle {
-		_, incompatible := uistate.PartitionAndBuildRows(v.filtered, v.app.mc.SelectedModLoader, v.expanded)
+		_, incompatible := uistate.PartitionAndBuildRows(v.filtered, v.expanded)
 		title := i18n.T("manage.incompatible.title", map[string]string{"n": itoa(incompatible)})
 		start := escapedWidth("⚠ ")
 		return listRowZones{
@@ -490,7 +491,7 @@ func (v *managePage) rowClickZones(index int) listRowZones {
 		Enabled:     true,
 		CheckboxEnd: plainWidth(checkBox(false)),
 		TitleStart:  start,
-		TitleEnd:    start + escapedWidth(uistate.DisplayModName(row.Group)),
+		TitleEnd:    start + escapedWidth(row.Group.DisplayName),
 	}
 }
 

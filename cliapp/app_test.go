@@ -12,10 +12,10 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/link-fgfgui/mod-downloader-core/global"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/global"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
 func TestAppExposesConfigButNotVersionsCommand(t *testing.T) {

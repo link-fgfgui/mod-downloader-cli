@@ -7,10 +7,11 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -488,7 +489,7 @@ func TestDownloadInstallGuardsAndCancel(t *testing.T) {
 	h.app.search.DownloadingKeys = nil
 
 	// Cancelling the conflict dialog releases the key.
-	h.app.search.DownloadStates = []appstructs.ModDownloadButtonState{{Key: result.ID, Status: "conflict"}}
+	h.app.search.DownloadStates = []appview.ModDownloadButtonState{{Key: result.ID, Status: "conflict"}}
 	page.installCurrent(0)
 	if top := h.app.topDialog(); top == nil || !strings.HasPrefix(top.name, "confirm") {
 		t.Fatalf("conflict dialog=%v", top)

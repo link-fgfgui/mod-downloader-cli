@@ -42,7 +42,7 @@ func TestLiveAPIMinecraftReleaseStartup(t *testing.T) {
 
 // TestLiveAPISearchAndVersionDialog drives the real Modrinth search through the
 // keyboard path, then opens the version dialog for the first result. It covers
-// providers -> appcore -> tuihost -> event pump -> uistate -> tview.
+// providers -> appcore -> host -> event pump -> uistate -> tview.
 func TestLiveAPISearchAndVersionDialog(t *testing.T) {
 	requireLiveAPI(t)
 

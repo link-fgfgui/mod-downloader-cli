@@ -10,8 +10,8 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"go.uber.org/goleak"
 
-	"github.com/link-fgfgui/mod-downloader-core/global"
-	"github.com/link-fgfgui/mod-downloader-core/logging"
+	"github.com/link-fgfgui/mod-downloader/core/global"
+	"github.com/link-fgfgui/mod-downloader/core/logging"
 )
 
 // runSimulated runs the real tviewui.Run path (host startup, HTTP server,
@@ -44,7 +44,7 @@ func runSimulated(t *testing.T, onReady func()) error {
 	started := make(chan *App, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- runWith(context.Background(), Options{Version: "test"}, sim, func(a *App) {
+		errCh <- runWith(context.Background(), Options{Version: "test", InstanceAddr: "127.0.0.1:0"}, sim, func(a *App) {
 			started <- a
 		})
 	}()

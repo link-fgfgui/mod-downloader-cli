@@ -1,15 +1,14 @@
 package uistate
 
 import (
-	"math"
-	"strings"
 	"testing"
 
-	"github.com/link-fgfgui/mod-downloader-core/configs"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/configs"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
 
 func TestDownloadErrorI18nKey(t *testing.T) {
@@ -42,7 +41,7 @@ func TestSetTargetTuple(t *testing.T) {
 	if !state.SetTargetTuple("1.20.1", "Fabric", true) {
 		t.Fatal("first tuple assignment must report a change")
 	}
-	state.DownloadStates = []appstructs.ModDownloadButtonState{{Key: "sodium"}}
+	state.DownloadStates = []appview.ModDownloadButtonState{{Key: "sodium"}}
 	if state.SetTargetTuple("1.20.1", "Fabric", true) {
 		t.Fatal("identical tuple must not report a change")
 	}
@@ -175,7 +174,7 @@ func TestStateForResultKey(t *testing.T) {
 	lithium := project("lithium")
 	state := SearchState{
 		SearchResults:  []models.ModProject{sodium, lithium},
-		DownloadStates: []appstructs.ModDownloadButtonState{{Key: "sodium-key"}},
+		DownloadStates: []appview.ModDownloadButtonState{{Key: "sodium-key"}},
 	}
 	if got := state.StateForResultKey(sodium); got != "sodium-key" {
 		t.Fatalf("state key at the result index must win, got %q", got)
@@ -190,7 +189,7 @@ func TestStateForResultKey(t *testing.T) {
 
 	emptyKey := SearchState{
 		SearchResults:  []models.ModProject{sodium},
-		DownloadStates: []appstructs.ModDownloadButtonState{{Key: ""}},
+		DownloadStates: []appview.ModDownloadButtonState{{Key: ""}},
 	}
 	if got := emptyKey.StateForResultKey(sodium); got != "sodium" {
 		t.Fatalf("empty state key must fall back to the result id, got %q", got)
@@ -198,8 +197,8 @@ func TestStateForResultKey(t *testing.T) {
 }
 
 func TestQueueMembershipKeyAndClear(t *testing.T) {
-	itemsA := []appstructs.DownloadQueueItem{{ID: "1", Status: "running"}, {ID: "2", Status: "pending"}}
-	itemsB := []appstructs.DownloadQueueItem{{ID: "2", Status: "pending"}, {ID: "1", Status: "running"}}
+	itemsA := []appview.DownloadQueueItem{{ID: "1", Status: "running"}, {ID: "2", Status: "pending"}}
+	itemsB := []appview.DownloadQueueItem{{ID: "2", Status: "pending"}, {ID: "1", Status: "running"}}
 	if QueueMembershipKey(itemsA) != QueueMembershipKey(itemsB) {
 		t.Fatalf("membership key must be order independent: %q vs %q", QueueMembershipKey(itemsA), QueueMembershipKey(itemsB))
 	}
@@ -209,7 +208,7 @@ func TestQueueMembershipKeyAndClear(t *testing.T) {
 	if got := QueueMembershipKey(nil); got != "" {
 		t.Fatalf("empty queue membership must be empty, got %q", got)
 	}
-	if QueueMembershipKey(itemsA) == QueueMembershipKey([]appstructs.DownloadQueueItem{{ID: "1", Status: "failed"}}) {
+	if QueueMembershipKey(itemsA) == QueueMembershipKey([]appview.DownloadQueueItem{{ID: "1", Status: "failed"}}) {
 		t.Fatal("status changes must change the membership key")
 	}
 
@@ -232,7 +231,7 @@ func TestApplySearchUpdateLoading(t *testing.T) {
 	if !ok {
 		t.Fatal("search should start with a target tuple")
 	}
-	accepted, refresh := state.ApplySearchUpdate(appstructs.SearchModsUpdate{
+	accepted, refresh := state.ApplySearchUpdate(appview.SearchModsUpdate{
 		RequestID: reqID,
 		Results:   []models.ModProject{project("sodium")},
 		Loading:   true,
@@ -248,34 +247,10 @@ func TestApplySearchUpdateLoading(t *testing.T) {
 	}
 }
 
-func TestNormalizeAnimationDurationMultiplier(t *testing.T) {
-	tests := []struct {
-		name string
-		in   float64
-		want float64
-	}{
-		{"nan", math.NaN(), DefaultAnimationDurationMultiplier},
-		{"positive infinity", math.Inf(1), DefaultAnimationDurationMultiplier},
-		{"negative infinity", math.Inf(-1), DefaultAnimationDurationMultiplier},
-		{"zero", 0, DefaultAnimationDurationMultiplier},
-		{"negative", -0.5, DefaultAnimationDurationMultiplier},
-		{"below minimum", 0.05, MinAnimationDurationMultiplier},
-		{"above maximum", 10, MaxAnimationDurationMultiplier},
-		{"valid", 1.5, 1.5},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := NormalizeAnimationDurationMultiplier(tt.in); got != tt.want {
-				t.Fatalf("NormalizeAnimationDurationMultiplier(%v) = %v, want %v", tt.in, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestLoadSettingsDraftsFallbacks(t *testing.T) {
 	tests := []struct {
 		name          string
-		view          appstructs.SettingsView
+		view          appview.SettingsView
 		wantTheme     string
 		wantLanguage  string
 		wantRelease   string
@@ -283,32 +258,32 @@ func TestLoadSettingsDraftsFallbacks(t *testing.T) {
 	}{
 		{
 			name:          "empty view uses defaults",
-			view:          appstructs.SettingsView{},
+			view:          appview.SettingsView{},
 			wantTheme:     "dark",
 			wantLanguage:  "system",
-			wantRelease:   ReleaseTypeRelease,
-			wantMultipler: DefaultAnimationDurationMultiplier,
+			wantRelease:   ReleaseTypeLatest,
+			wantMultipler: configs.DefaultAnimationDurationMultiplier,
 		},
 		{
 			name: "explicit values pass through",
-			view: appstructs.SettingsView{
+			view: appview.SettingsView{
 				Theme:                       "light",
 				Language:                    "zh-CN",
 				PreferredReleaseType:        ReleaseTypeBeta,
 				AnimationDurationMultiplier: 2.5,
 			},
 			wantTheme:     "light",
-			wantLanguage:  "zh-CN",
+			wantLanguage:  "zh",
 			wantRelease:   ReleaseTypeBeta,
 			wantMultipler: 2.5,
 		},
 		{
 			name:          "zero multiplier falls back",
-			view:          appstructs.SettingsView{AnimationDurationMultiplier: 0},
+			view:          appview.SettingsView{AnimationDurationMultiplier: 0},
 			wantTheme:     "dark",
 			wantLanguage:  "system",
-			wantRelease:   ReleaseTypeRelease,
-			wantMultipler: DefaultAnimationDurationMultiplier,
+			wantRelease:   ReleaseTypeLatest,
+			wantMultipler: configs.DefaultAnimationDurationMultiplier,
 		},
 	}
 	for _, tt := range tests {
@@ -339,12 +314,12 @@ func TestValidateNetworkSettingsClamps(t *testing.T) {
 		wantRPS        int
 	}{
 		{"zero falls back", SettingsDrafts{}, configs.DefaultFileConcurrency, configs.DefaultConcurrentDownloads, 0},
-		{"file below minimum", SettingsDrafts{FileConcurrency: -2}, configs.MinFileConcurrency, configs.DefaultConcurrentDownloads, 0},
+		{"file below minimum", SettingsDrafts{FileConcurrency: -2}, configs.DefaultFileConcurrency, configs.DefaultConcurrentDownloads, 0},
 		{"file above maximum", SettingsDrafts{FileConcurrency: 999}, configs.MaxFileConcurrency, configs.DefaultConcurrentDownloads, 0},
-		{"concurrent below minimum", SettingsDrafts{ConcurrentDownloads: -3}, configs.DefaultFileConcurrency, configs.MinConcurrentDownloads, 0},
+		{"concurrent below minimum", SettingsDrafts{ConcurrentDownloads: -3}, configs.DefaultFileConcurrency, configs.DefaultConcurrentDownloads, 0},
 		{"concurrent above maximum", SettingsDrafts{ConcurrentDownloads: 500}, configs.DefaultFileConcurrency, configs.MaxConcurrentDownloads, 0},
 		{"concurrent valid", SettingsDrafts{ConcurrentDownloads: 32}, configs.DefaultFileConcurrency, 32, 0},
-		{"rps below minimum", SettingsDrafts{RequestsPerSecond: -5}, configs.DefaultFileConcurrency, configs.DefaultConcurrentDownloads, configs.MinRequestsPerSecond},
+		{"rps below minimum", SettingsDrafts{RequestsPerSecond: -5}, configs.DefaultFileConcurrency, configs.DefaultConcurrentDownloads, 0},
 		{"rps above maximum", SettingsDrafts{RequestsPerSecond: 1000}, configs.DefaultFileConcurrency, configs.DefaultConcurrentDownloads, configs.MaxRequestsPerSecond},
 		{"rps valid", SettingsDrafts{RequestsPerSecond: 50}, configs.DefaultFileConcurrency, configs.DefaultConcurrentDownloads, 50},
 	}
@@ -460,128 +435,6 @@ func TestHasFavoriteScope(t *testing.T) {
 	}
 }
 
-func TestListMatchesScope(t *testing.T) {
-	tests := []struct {
-		name    string
-		list    storage.FavoriteList
-		version string
-		loader  string
-		want    bool
-	}{
-		{
-			name:    "no scope matches any scope",
-			list:    storage.FavoriteList{},
-			version: "1.20.1",
-			loader:  "fabric",
-			want:    true,
-		},
-		{
-			name:    "no scope matches empty scope",
-			list:    storage.FavoriteList{},
-			version: "",
-			loader:  "",
-			want:    true,
-		},
-		{
-			name:    "scoped list matches normalized scope",
-			list:    storage.FavoriteList{MinecraftVersion: " 1.20.1 ", ModLoader: "Fabric"},
-			version: "1.20.1",
-			loader:  "fabric",
-			want:    true,
-		},
-		{
-			name:    "scoped list rejects different version",
-			list:    storage.FavoriteList{MinecraftVersion: "1.20.1", ModLoader: "Fabric"},
-			version: "1.19.2",
-			loader:  "fabric",
-			want:    false,
-		},
-		{
-			name:    "scoped list rejects empty active scope",
-			list:    storage.FavoriteList{MinecraftVersion: "1.20.1", ModLoader: "Fabric"},
-			version: "",
-			loader:  "",
-			want:    false,
-		},
-		{
-			name:    "partially scoped list requires exact loader",
-			list:    storage.FavoriteList{MinecraftVersion: "1.20.1"},
-			version: "1.20.1",
-			loader:  "fabric",
-			want:    false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ListMatchesScope(tt.list, tt.version, tt.loader); got != tt.want {
-				t.Fatalf("ListMatchesScope() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestSortListsOrdering(t *testing.T) {
-	pinnedA := storage.FavoriteList{ID: "p1", Name: "A", Pinned: true, SortOrder: 1}
-	pinnedB := storage.FavoriteList{ID: "p2", Name: "B", Pinned: true, SortOrder: 2}
-	unpinned := storage.FavoriteList{ID: "u1", Name: "A", SortOrder: 0}
-
-	if !ListOrder(pinnedB, unpinned) {
-		t.Fatal("pinned lists must sort before unpinned lists")
-	}
-	if ListOrder(unpinned, pinnedB) {
-		t.Fatal("unpinned lists must not sort before pinned lists")
-	}
-	if !ListOrder(pinnedA, pinnedB) {
-		t.Fatal("lower sort order must win within the same pinned state")
-	}
-	if !ListOrder(unpinned, storage.FavoriteList{ID: "u2", Name: "B"}) {
-		t.Fatal("name must break ties on sort order")
-	}
-
-	lists := []storage.FavoriteList{
-		{ID: "p1", Name: "Z", Pinned: true, SortOrder: 2},
-		{ID: "p2", Name: "A", Pinned: true, SortOrder: 2},
-		{ID: "u1", Name: "B", SortOrder: 2},
-		{ID: "u2", Name: "A", SortOrder: 2},
-		{ID: "u3", Name: "C", SortOrder: 1},
-	}
-	ordered := SortLists(lists)
-	want := []string{"p2", "p1", "u3", "u2", "u1"}
-	if len(ordered) != len(want) {
-		t.Fatalf("sorted length = %d, want %d", len(ordered), len(want))
-	}
-	for i := range want {
-		if ordered[i].ID != want[i] {
-			t.Fatalf("sorted[%d] = %q, want %q (full order %#v)", i, ordered[i].ID, want[i], ordered)
-		}
-	}
-}
-
-func TestFavoriteContentsForScope(t *testing.T) {
-	contents := storage.FavoriteListContents{
-		ListID: "list-1",
-		Refs:   []storage.FavoriteListRef{{ID: "ref-1"}},
-		Mods: []storage.FavoriteModEntry{
-			{FavoriteMod: storage.FavoriteMod{ModID: "a", MinecraftVersion: "1.20.1", ModLoader: "Fabric"}},
-			{FavoriteMod: storage.FavoriteMod{ModID: "b", MinecraftVersion: "1.19.2", ModLoader: "Fabric"}},
-			{FavoriteMod: storage.FavoriteMod{ModID: "c", MinecraftVersion: "1.20.1", ModLoader: "Forge"}},
-		},
-	}
-
-	filtered := FavoriteContentsForScope(contents, "1.20.1", "fabric")
-	if len(filtered.Mods) != 1 || filtered.Mods[0].ModID != "a" {
-		t.Fatalf("scope filter wrong: %#v", filtered.Mods)
-	}
-	if filtered.ListID != "list-1" || len(filtered.Refs) != 1 {
-		t.Fatalf("non-mod contents must be preserved: %#v", filtered)
-	}
-
-	unscoped := FavoriteContentsForScope(contents, "", "")
-	if len(unscoped.Mods) != 0 {
-		t.Fatalf("empty scope must filter everything out, got %d", len(unscoped.Mods))
-	}
-}
-
 func TestManageRowKey(t *testing.T) {
 	toggle := ManageRow{Kind: RowKindIncompatibleToggle}
 	if got := toggle.RowKey(); got != "incompatible-toggle" {
@@ -601,36 +454,6 @@ func TestManageRowKey(t *testing.T) {
 
 	if got := (ManageRow{Kind: RowKindMod}).RowKey(); got != "" {
 		t.Fatalf("empty group row key = %q", got)
-	}
-}
-
-func TestDisplayModName(t *testing.T) {
-	tests := []struct {
-		name  string
-		group ModGroup
-		want  string
-	}{
-		{"online name wins", ModGroup{Primary: structs.ModInfo{OnlineName: "Sodium Online", Name: "Sodium", ID: "sodium"}}, "Sodium Online"},
-		{"name fallback", ModGroup{Primary: structs.ModInfo{Name: "Sodium", ID: "sodium"}}, "Sodium"},
-		{"id fallback", ModGroup{Primary: structs.ModInfo{ID: "sodium"}}, "sodium"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := DisplayModName(tt.group); got != tt.want {
-				t.Fatalf("DisplayModName() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestModCategories(t *testing.T) {
-	group := ModGroup{Primary: structs.ModInfo{Categories: []string{" Optimization ", "optimization", "", "Utility", " utility "}}}
-	got := ModCategories(group)
-	if len(got) != 2 || got[0] != "optimization" || got[1] != "utility" {
-		t.Fatalf("ModCategories() = %#v, want [optimization utility]", got)
-	}
-	if empty := ModCategories(ModGroup{}); len(empty) != 0 {
-		t.Fatalf("empty categories must produce an empty slice, got %#v", empty)
 	}
 }
 
@@ -658,7 +481,7 @@ func TestHasGroupedDetails(t *testing.T) {
 	}{
 		{"single strong without jij", ModGroup{Strong: []structs.ModInfo{{ID: "a"}}}, false},
 		{"multiple strong", ModGroup{Strong: []structs.ModInfo{{ID: "a"}, {ID: "b"}}}, true},
-		{"single strong with jij", ModGroup{Strong: []structs.ModInfo{{ID: "a"}}, Jij: []structs.JijModInfo{{ID: "j"}}}, true},
+		{"single strong with jij", ModGroup{Strong: []structs.ModInfo{{ID: "a"}}, JIJ: []structs.JIJModInfo{{ID: "j"}}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -735,7 +558,7 @@ func TestCanFavoriteGroupAndSelection(t *testing.T) {
 }
 
 func TestOnlineProjectFromGroup(t *testing.T) {
-	group := ModGroup{Primary: structs.ModInfo{
+	groups := appcore.BuildLocalModGroups([]structs.ModInfo{{
 		ID:              "local-id",
 		Name:            "Sodium Local",
 		OnlineName:      "Sodium",
@@ -745,7 +568,8 @@ func TestOnlineProjectFromGroup(t *testing.T) {
 		IconURL:         "https://example.invalid/icon.png",
 		Description:     "fast rendering",
 		Categories:      []string{" Optimization ", "optimization", "Utility"},
-	}}
+	}}, "")
+	group := groups[0]
 	got := OnlineProjectFromGroup(group)
 	if got.ID != "modrinth:sodium" {
 		t.Fatalf("project id = %q, want modrinth:sodium", got.ID)
@@ -936,20 +760,20 @@ func TestMinecraftSetSelectedModLoader(t *testing.T) {
 }
 
 func TestQueueCountsAndVisibility(t *testing.T) {
-	q := QueueState{Queue: appstructs.DownloadQueueState{Pending: 2, Running: 3}}
+	q := QueueState{Queue: appview.DownloadQueueState{Pending: 2, Running: 3}}
 	if got := q.ActiveCount(); got != 5 {
 		t.Fatalf("ActiveCount() = %d, want 5", got)
 	}
 
-	explicit := QueueState{Queue: appstructs.DownloadQueueState{
+	explicit := QueueState{Queue: appview.DownloadQueueState{
 		MessageCount:      4,
-		OptionalReminders: []appstructs.OptionalDependencyReminder{{ID: "r1"}, {ID: "r2"}},
+		OptionalReminders: []appview.OptionalDependencyReminder{{ID: "r1"}, {ID: "r2"}},
 	}}
 	if got := explicit.MessageCount(); got != 4 {
 		t.Fatalf("explicit message count must win, got %d", got)
 	}
-	fallback := QueueState{Queue: appstructs.DownloadQueueState{
-		OptionalReminders: []appstructs.OptionalDependencyReminder{{ID: "r1"}, {ID: "r2"}},
+	fallback := QueueState{Queue: appview.DownloadQueueState{
+		OptionalReminders: []appview.OptionalDependencyReminder{{ID: "r1"}, {ID: "r2"}},
 	}}
 	if got := fallback.MessageCount(); got != 2 {
 		t.Fatalf("reminder length must be the fallback, got %d", got)
@@ -960,13 +784,13 @@ func TestQueueCountsAndVisibility(t *testing.T) {
 
 	visibleTests := []struct {
 		name  string
-		queue appstructs.DownloadQueueState
+		queue appview.DownloadQueueState
 		want  bool
 	}{
-		{"items", appstructs.DownloadQueueState{Items: []appstructs.DownloadQueueItem{{ID: "d1"}}}, true},
-		{"reminders", appstructs.DownloadQueueState{OptionalReminders: []appstructs.OptionalDependencyReminder{{ID: "r1"}}}, true},
-		{"counts only", appstructs.DownloadQueueState{Pending: 3, MessageCount: 2}, false},
-		{"empty", appstructs.DownloadQueueState{}, false},
+		{"items", appview.DownloadQueueState{Items: []appview.DownloadQueueItem{{ID: "d1"}}}, true},
+		{"reminders", appview.DownloadQueueState{OptionalReminders: []appview.OptionalDependencyReminder{{ID: "r1"}}}, true},
+		{"counts only", appview.DownloadQueueState{Pending: 3, MessageCount: 2}, false},
+		{"empty", appview.DownloadQueueState{}, false},
 	}
 	for _, tt := range visibleTests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -979,8 +803,8 @@ func TestQueueCountsAndVisibility(t *testing.T) {
 
 func TestQueueNoteDownloadCompleted(t *testing.T) {
 	state := NewQueueState()
-	active := appstructs.DownloadQueueState{Active: true, Running: 1}
-	idle := appstructs.DownloadQueueState{Active: false}
+	active := appview.DownloadQueueState{Active: true, Running: 1}
+	idle := appview.DownloadQueueState{Active: false}
 
 	if state.ApplyQueue(active) {
 		t.Fatal("starting an active cycle must not ring")
@@ -1005,59 +829,11 @@ func TestQueueNoteDownloadCompleted(t *testing.T) {
 	}
 }
 
-func TestBuildGroupsKeyFallbacksAndJijDedup(t *testing.T) {
-	mods := []structs.ModInfo{
-		{
-			ID: "id-only", Name: "First", JijMods: []structs.JijModInfo{
-				{ID: "jij", Name: "Jij"},
-				{ID: "jij", Name: "Duplicate"},
-				{ID: "   ", Name: "Blank"},
-			},
-		},
-		{ID: "id-only", Name: "Second"},
-		{ID: "path-only", Path: "/mods/p.jar", Name: "Path"},
-	}
-	groups := BuildGroups(mods)
-	if len(groups) != 2 {
-		t.Fatalf("groups=%d, want 2", len(groups))
-	}
-	if groups[0].Primary.ID != "id-only" || len(groups[0].Strong) != 2 {
-		t.Fatalf("id group=%+v", groups[0])
-	}
-	if len(groups[0].Jij) != 1 || groups[0].Jij[0].Name != "Jij" {
-		t.Fatalf("jij dedup=%+v", groups[0].Jij)
-	}
-	if groups[1].Primary.ID != "path-only" {
-		t.Fatalf("path fallback=%+v", groups[1].Primary)
-	}
-}
-
-func TestSearchableGroupTextIncludesEveryScalar(t *testing.T) {
-	mod := structs.ModInfo{
-		ID: "id", Name: "Name", Version: "1.0", Description: "Desc", FileName: "f.jar", Path: "/p", SHA1: "sha",
-		OnlineName: "Online", OnlinePlatform: "modrinth", OnlineProjectID: "pid", OnlineSlug: "slug",
-		OnlineVersion: "1", OnlineVersionID: "vid", OnlineFileName: "of.jar", IconURL: "icon",
-		Categories: []string{"Cat"}, Loaders: []string{"Fabric"}, CfFingerprint: 42,
-		Dependencies: []structs.LocalModDependency{{ModID: "dep", Type: "required"}},
-		JijMods:      []structs.JijModInfo{{ID: "jij", Name: "JijName"}},
-	}
-	groups := BuildGroups([]structs.ModInfo{mod})
-	text := SearchableGroupText(groups[0])
-	for _, want := range []string{
-		"id", "name", "1.0", "desc", "f.jar", "/p", "sha", "online", "modrinth", "pid",
-		"slug", "vid", "of.jar", "icon", "cat", "fabric", "42", "dep", "required", "jij", "jijname",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("searchable text missing %q: %q", want, text)
-		}
-	}
-}
-
 func TestFilterGroupsDefaultsAndExpandedRows(t *testing.T) {
-	groups := BuildGroups([]structs.ModInfo{
+	groups := appcore.BuildLocalModGroups([]structs.ModInfo{
 		{ID: "a", FileName: "a.jar", Enabled: true, Loaders: []string{"fabric"}},
 		{ID: "b", FileName: "b.jar", Enabled: false, Loaders: []string{"forge"}},
-	})
+	}, "fabric")
 	if got := FilterGroups(groups, "", ""); len(got) != 2 {
 		t.Fatalf("empty filter kept %d groups", len(got))
 	}
@@ -1067,18 +843,18 @@ func TestFilterGroupsDefaultsAndExpandedRows(t *testing.T) {
 	if got := FilterGroups(groups, "B.JAR", FilterAll); len(got) != 1 || got[0].Primary.ID != "b" {
 		t.Fatalf("keyword filter=%+v", got)
 	}
-	if IsGroupIncompatible(groups[1], "   ") {
-		t.Fatal("blank loader must not mark a group incompatible")
+	if groups[0].Incompatible || !groups[1].Incompatible {
+		t.Fatalf("loader compatibility = %v/%v, want false/true", groups[0].Incompatible, groups[1].Incompatible)
 	}
 
-	rows, count := PartitionAndBuildRows(groups, "fabric", true)
+	rows, count := PartitionAndBuildRows(groups, true)
 	if count != 1 || len(rows) != 3 {
 		t.Fatalf("expanded rows=%d count=%d", len(rows), count)
 	}
 	if rows[1].Kind != RowKindIncompatibleToggle || rows[2].Group.Primary.ID != "b" {
 		t.Fatalf("expanded rows=%+v", rows)
 	}
-	rows, count = PartitionAndBuildRows(groups, "fabric", false)
+	rows, count = PartitionAndBuildRows(groups, false)
 	if count != 1 || len(rows) != 2 {
 		t.Fatalf("collapsed rows=%d count=%d", len(rows), count)
 	}

@@ -10,12 +10,11 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
-	"github.com/link-fgfgui/mod-downloader-cli/internal/tuihost"
 )
 
 var updateGolden = flag.Bool("update", false, "update golden frames")
@@ -149,7 +148,7 @@ func TestVersionChangeDoesNotScheduleRefresh(t *testing.T) {
 	h.app.mc.MinecraftDir = "/tmp/.minecraft"
 	version := structsVersion(1, "1.20.1", "Fabric")
 	for i := 0; i < 25; i++ {
-		h.app.handleEvent(tuihost.Event{Kind: tuihost.EventSelectedVersionChanged, Payload: version})
+		h.app.handleSelectedVersionChanged(version)
 	}
 	if h.app.mc.SelectedVersion == nil || h.app.mc.SelectedVersion.ID != "inst-1" {
 		t.Fatalf("selected version not applied: %+v", h.app.mc.SelectedVersion)

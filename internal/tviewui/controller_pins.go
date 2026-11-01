@@ -1,9 +1,9 @@
 package tviewui
 
 import (
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 )
 
 // --- pins --------------------------------------------------------------------

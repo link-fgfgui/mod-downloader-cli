@@ -5,9 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/cliapp/prompt"
 )
@@ -57,8 +58,8 @@ func (s *scriptedPrompter) Confirm(ctx context.Context, p prompt.ConfirmPrompt) 
 
 func TestRunInstallWizardSelectsProjects(t *testing.T) {
 	installSeams(t)
-	searchModsTextFn = func(svc *appcore.Service, req appstructs.SearchModsRequest) appstructs.SearchModsUpdate {
-		return appstructs.SearchModsUpdate{Results: []models.ModProject{
+	searchModsTextFn = func(svc *appcore.Service, req appstructs.SearchModsRequest) appview.SearchModsUpdate {
+		return appview.SearchModsUpdate{Results: []models.ModProject{
 			projectRef("modrinth", "AANobbMI", "sodium", "Sodium", 1000),
 			projectRef("modrinth", "other", "other", "Other", 10),
 		}}

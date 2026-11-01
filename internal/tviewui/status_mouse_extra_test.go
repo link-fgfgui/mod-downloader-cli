@@ -7,7 +7,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 )
@@ -243,8 +243,8 @@ func TestActionBarLayoutKeepsOnlyFittingActions(t *testing.T) {
 // the status-bar capsule.
 func TestRightClickQueueCapsuleClearsReminders(t *testing.T) {
 	h := newTestApp(t, 120, 40)
-	h.app.applyQueue(appstructs.DownloadQueueState{
-		OptionalReminders: []appstructs.OptionalDependencyReminder{{ID: "r1"}},
+	h.app.applyQueue(appview.DownloadQueueState{
+		OptionalReminders: []appview.OptionalDependencyReminder{{ID: "r1"}},
 	})
 	h.draw()
 	x, y, w, hgt := h.app.statusBar.QueueButton().GetRect()
@@ -282,9 +282,9 @@ func TestDialogMouseClickOnBorderIsPassedThrough(t *testing.T) {
 
 func TestQueueDockOptionalHelpers(t *testing.T) {
 	h := newTestApp(t, 120, 40)
-	state := appstructs.DownloadQueueState{
-		OptionalReminders: []appstructs.OptionalDependencyReminder{
-			{ID: "r1", MainTitle: "Create", Dependencies: []appstructs.OptionalDependencyCandidate{{ProjectID: "jei", Platform: "curseforge"}}},
+	state := appview.DownloadQueueState{
+		OptionalReminders: []appview.OptionalDependencyReminder{
+			{ID: "r1", MainTitle: "Create", Dependencies: []appview.OptionalDependencyCandidate{{ProjectID: "jei", Platform: "curseforge"}}},
 		},
 	}
 	h.app.applyQueue(state)

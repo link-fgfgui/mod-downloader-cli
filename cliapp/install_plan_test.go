@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
 )
 
 func TestMetadataTimeoutFallsBackToSlug(t *testing.T) {

@@ -8,7 +8,7 @@ require (
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/gdamore/tcell/v2 v2.8.1
-	github.com/link-fgfgui/mod-downloader-core v0.0.0
+	github.com/link-fgfgui/mod-downloader/core v0.0.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-runewidth v0.0.19
 	github.com/rivo/tview v0.42.0
@@ -67,4 +67,4 @@ require (
 	olympos.io/encoding/edn v0.0.0-20201019073823-d3554ca0b0a3 // indirect
 )
 
-replace github.com/link-fgfgui/mod-downloader-core => ./core
+replace github.com/link-fgfgui/mod-downloader/core => ./core

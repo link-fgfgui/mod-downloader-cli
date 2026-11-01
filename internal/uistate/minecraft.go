@@ -3,7 +3,7 @@ package uistate
 import (
 	"strings"
 
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
 // DefaultModLoader / ModLoaderOptions mirror the frontend tuple defaults.

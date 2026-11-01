@@ -13,8 +13,8 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/link-fgfgui/mod-downloader-core/global"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/global"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
 // TestMain neutralizes cli.OsExiter so that commands returning cli.Exit errors

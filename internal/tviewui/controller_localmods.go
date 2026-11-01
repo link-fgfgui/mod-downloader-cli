@@ -1,7 +1,7 @@
 package tviewui
 
 import (
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 )
 
 // --- local mods --------------------------------------------------------------

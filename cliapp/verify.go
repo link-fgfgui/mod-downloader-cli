@@ -2,22 +2,23 @@ package cliapp
 
 import (
 	"context"
+	"crypto/sha512"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/minecraft"
-	"github.com/link-fgfgui/mod-downloader-core/modbridge"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/modbridge"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
 func osStatFile(path string) (string, bool) {
@@ -28,21 +29,10 @@ func osStatFile(path string) (string, bool) {
 	return path, true
 }
 
-type verifyIssue struct {
-	Kind     string `json:"kind"`
-	ModID    string `json:"modId,omitempty"`
-	File     string `json:"file,omitempty"`
-	Message  string `json:"message"`
-	Suggest  string `json:"suggest,omitempty"`
-	Advisory bool   `json:"advisory,omitempty"`
-}
-
-type verifyReport struct {
-	Checked  int           `json:"checked"`
-	Provided []string      `json:"provided"`
-	Issues   []verifyIssue `json:"issues,omitempty"`
-	Passed   bool          `json:"passed"`
-}
+// The report types are owned by appcore so the GUI and TUI can reuse the same
+// verification rules; the CLI only formats them.
+type verifyIssue = appcore.VerifyIssue
+type verifyReport = appcore.VerifyReport
 
 func (r runner) verifyCommand() *cli.Command {
 	return &cli.Command{
@@ -78,119 +68,9 @@ func (r runner) verifyCommand() *cli.Command {
 	}
 }
 
+// analyzeVerify delegates to the shared core rules.
 func analyzeVerify(modsDir string, mods []structs.ModInfo, mcVersion, modLoader string, strict bool) verifyReport {
-	provided := make(map[string]bool)
-	jarPaths := make([]string, 0)
-	seenPath := make(map[string]bool)
-	idToPaths := make(map[string]map[string]bool)
-
-	for _, mod := range mods {
-		id := strings.ToLower(strings.TrimSpace(mod.ID))
-		if id != "" {
-			provided[id] = true
-		}
-		for _, jij := range mod.JijMods {
-			if jijID := strings.ToLower(strings.TrimSpace(jij.ID)); jijID != "" {
-				provided[jijID] = true
-			}
-		}
-		path := resolveLocalModPath(modsDir, mod)
-		if path == "" {
-			continue
-		}
-		if !seenPath[path] {
-			seenPath[path] = true
-			jarPaths = append(jarPaths, path)
-		}
-		if id != "" {
-			if idToPaths[id] == nil {
-				idToPaths[id] = make(map[string]bool)
-			}
-			idToPaths[id][path] = true
-		}
-	}
-
-	report := verifyReport{Checked: len(jarPaths)}
-	for _, id := range sortedKeys(idToPaths) {
-		if len(idToPaths[id]) > 1 {
-			report.Issues = append(report.Issues, verifyIssue{
-				Kind:    "duplicate-mod",
-				ModID:   id,
-				Message: fmt.Sprintf("mod id %q is provided by %d different jars", id, len(idToPaths[id])),
-			})
-		}
-	}
-
-	for _, path := range jarPaths {
-		meta, err := parseJarMetadata(path)
-		if err != nil {
-			continue
-		}
-		for _, dep := range meta.Depends {
-			depID := strings.ToLower(strings.TrimSpace(dep.ID))
-			if depID == "" || isBuiltinModID(depID) || provided[depID] {
-				continue
-			}
-			report.Issues = append(report.Issues, verifyIssue{
-				Kind:    "missing-dependency",
-				ModID:   dep.ID,
-				File:    filepath.Base(path),
-				Message: fmt.Sprintf("missing required dependency %q", dep.ID),
-				Suggest: fmt.Sprintf("mod-downloader-cli install modrinth:%s", dep.ID),
-			})
-		}
-		if modLoader != "" && meta.Loader != "" && !loaderCompatible(meta.Loader, modLoader) {
-			report.Issues = append(report.Issues, verifyIssue{
-				Kind:     "incompatible",
-				ModID:    meta.ID,
-				File:     filepath.Base(path),
-				Message:  fmt.Sprintf("mod targets loader %q but the instance uses %q", meta.Loader, modLoader),
-				Advisory: true,
-			})
-		}
-		if mcVersion != "" && meta.MinecraftVersion != "" {
-			if allowed, known := versionRangeAllows(meta.MinecraftVersion, mcVersion); known && !allowed {
-				report.Issues = append(report.Issues, verifyIssue{
-					Kind:     "incompatible",
-					ModID:    meta.ID,
-					File:     filepath.Base(path),
-					Message:  fmt.Sprintf("mod supports Minecraft %s but the instance is %s", meta.MinecraftVersion, mcVersion),
-					Advisory: true,
-				})
-			}
-		}
-	}
-
-	report.Provided = sortedKeys(provided)
-	sort.SliceStable(report.Issues, func(i, j int) bool {
-		if report.Issues[i].Kind != report.Issues[j].Kind {
-			return report.Issues[i].Kind < report.Issues[j].Kind
-		}
-		return report.Issues[i].ModID < report.Issues[j].ModID
-	})
-
-	blocking, advisory := 0, 0
-	for _, issue := range report.Issues {
-		if issue.Advisory {
-			advisory++
-		} else {
-			blocking++
-		}
-	}
-	report.Passed = blocking == 0 && (!strict || advisory == 0)
-	return report
-}
-
-func loaderCompatible(modLoader, instanceLoader string) bool {
-	modLoader = strings.ToLower(strings.TrimSpace(modLoader))
-	instanceLoader = strings.ToLower(strings.TrimSpace(instanceLoader))
-	if modLoader == instanceLoader {
-		return true
-	}
-	if modLoader == "quilt" && instanceLoader == "fabric" {
-		return true
-	}
-	return false
+	return appcore.VerifyLocalMods(modsDir, mods, mcVersion, modLoader, strict)
 }
 
 func resolveLocalModPath(modsDir string, mod structs.ModInfo) string {
@@ -205,15 +85,6 @@ func resolveLocalModPath(modsDir string, mod structs.ModInfo) string {
 		path = filepath.Join(modsDir, path)
 	}
 	return filepath.Clean(path)
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func writeVerifyReport(w io.Writer, value any) error {
@@ -259,7 +130,7 @@ type jarFileInfo struct {
 }
 
 type infoView struct {
-	Metadata  jarMetadata      `json:"metadata"`
+	Metadata  structs.ModInfo  `json:"metadata"`
 	File      jarFileInfo      `json:"file"`
 	Installed *structs.ModInfo `json:"installed,omitempty"`
 	Online    *projectURLInfo  `json:"online,omitempty"`
@@ -317,18 +188,20 @@ func (r runner) infoCommand() *cli.Command {
 	}
 }
 
+// buildInfoView parses a jar through the shared core parser; the first declared
+// mod is the primary metadata entry.
 func buildInfoView(path string, installed *structs.ModInfo) (infoView, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		abs = path
 	}
-	meta, err := parseJarMetadata(abs)
-	if err != nil {
-		return infoView{}, fmt.Errorf("parse %s: %w", filepath.Base(abs), err)
-	}
 	sha1 := minecraft.FileSHA1(abs)
+	mods := minecraft.ParseLocalModJarWithSHA1(abs, sha1, "")
+	if len(mods) == 0 {
+		return infoView{}, fmt.Errorf("parse %s: no parseable mod metadata", filepath.Base(abs))
+	}
 	view := infoView{
-		Metadata: meta,
+		Metadata: mods[0],
 		File: jarFileInfo{
 			Path:   abs,
 			Name:   filepath.Base(abs),
@@ -364,7 +237,7 @@ func onlineProjectForInfo(installed *structs.ModInfo, sha1 string) *projectURLIn
 		if !ok {
 			continue
 		}
-		project, found := storage.GetModPlatform(platform, version.ProjectID)
+		project, found := storage.GetModProject(platform, version.ProjectID)
 		if !found {
 			continue
 		}
@@ -402,7 +275,7 @@ func writeInfoView(w io.Writer, value any) error {
 	fmt.Fprintln(tw, "MOD ID\t"+meta.ID)
 	fmt.Fprintln(tw, "NAME\t"+meta.Name)
 	fmt.Fprintln(tw, "VERSION\t"+meta.Version)
-	fmt.Fprintln(tw, "LOADER\t"+meta.Loader)
+	fmt.Fprintln(tw, "LOADER\t"+strings.Join(meta.Loaders, ", "))
 	if meta.Environment != "" {
 		fmt.Fprintln(tw, "ENVIRONMENT\t"+meta.Environment)
 	}
@@ -425,24 +298,10 @@ func writeInfoView(w io.Writer, value any) error {
 	fmt.Fprintln(tw, "SHA1\t"+view.File.SHA1)
 	fmt.Fprintln(tw, "SHA512\t"+view.File.SHA512)
 
-	if len(meta.Depends) > 0 {
-		fmt.Fprintln(tw, "\nDEPENDS\t\t")
-		for _, dep := range meta.Depends {
-			fmt.Fprintf(tw, "%s\t%s\t\n", dep.ID, dep.Version)
-		}
-	}
-	if len(meta.Recommends) > 0 {
-		fmt.Fprintln(tw, "\nRECOMMENDS\t\t")
-		for _, dep := range meta.Recommends {
-			fmt.Fprintf(tw, "%s\t%s\t\n", dep.ID, dep.Version)
-		}
-	}
-	if len(meta.Breaks) > 0 {
-		fmt.Fprintln(tw, "\nBREAKS\t\t")
-		for _, dep := range meta.Breaks {
-			fmt.Fprintf(tw, "%s\t%s\t\n", dep.ID, dep.Version)
-		}
-	}
+	writeDependencySection(tw, "DEPENDS", meta.Dependencies)
+	writeDependencySection(tw, "RECOMMENDS", meta.Recommends)
+	writeDependencySection(tw, "BREAKS", meta.Breaks)
+
 	if view.Online != nil {
 		fmt.Fprintln(tw, "\nONLINE\t\t")
 		fmt.Fprintln(tw, "PLATFORM\t"+view.Online.Platform)
@@ -450,4 +309,35 @@ func writeInfoView(w io.Writer, value any) error {
 		fmt.Fprintln(tw, "URL\t"+view.Online.URL)
 	}
 	return tw.Flush()
+}
+
+func writeDependencySection(w io.Writer, title string, deps []structs.LocalModDependency) {
+	if len(deps) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\n%s\t\t\n", title)
+	for _, dep := range deps {
+		fmt.Fprintf(w, "%s\t%s\t\n", dep.ModID, dep.Version)
+	}
+}
+
+func fileSHA512(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha512.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func fileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
 }

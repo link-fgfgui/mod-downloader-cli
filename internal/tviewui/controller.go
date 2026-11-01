@@ -1,12 +1,13 @@
 package tviewui
 
 import (
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/host"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
-	"github.com/link-fgfgui/mod-downloader-cli/internal/tuihost"
 )
 
 // --- events ------------------------------------------------------------------
@@ -21,59 +22,83 @@ func (a *App) service() *appcore.Service {
 	return a.host.Service()
 }
 
-// handleEvent applies one host event on the UI goroutine.
-func (a *App) handleEvent(event tuihost.Event) {
-	switch event.Kind {
-	case tuihost.EventSearchModsUpdated:
-		if update, ok := event.Payload.(appstructs.SearchModsUpdate); ok {
-			accepted, refresh := a.search.ApplySearchUpdate(update)
-			if accepted {
-				a.refreshDownloadView()
-			}
-			if refresh {
-				a.refreshDownloadStates()
-			}
-		}
-	case tuihost.EventDownloadStatesUpdated:
-		a.refreshDownloadStates()
-	case tuihost.EventDownloadQueueUpdated:
-		if state, ok := event.Payload.(appstructs.DownloadQueueState); ok {
-			a.applyQueue(state)
-		}
-	case tuihost.EventDownloadFailed:
-		if failed, ok := event.Payload.(appstructs.DownloadFailedEvent); ok {
-			fileName := failed.FileName
-			if fileName == "" {
-				fileName = i18n.T("download.errors.unknownFile")
-			}
-			reason := failed.Reason
-			if reason == "" {
-				reason = i18n.T("download.errors.generic")
-			}
-			a.toastT("download.errors.failedWithReason", map[string]string{"fileName": fileName, "reason": reason})
-		}
-		a.refreshDownloadStates()
-	case tuihost.EventDownloadCompleted:
-		a.queueState.NoteDownloadCompleted()
-	case tuihost.EventMinecraftDirChanged:
-		go a.refreshMinecraft()
-	case tuihost.EventSelectedVersionChanged:
-		if version, ok := event.Payload.(structs.VersionInfo); ok {
-			a.applySelectedVersion(version, true)
-		}
-	case tuihost.EventUsageStatsUpdated:
-		go a.refreshUsageStats()
-	case tuihost.EventExtensionModsAccepted:
-		if update, ok := event.Payload.(appstructs.SearchModsUpdate); ok {
-			if a.search.ApplyExtensionResults(update.Results) {
-				a.switchView(ViewDownload)
-				a.downloadPage().Refresh()
-				a.toastT("download.queued")
-				a.refreshDownloadStates()
-			}
-		}
+// registerEvents wires the typed core events into the batching pump. Handlers
+// run on the emitting goroutine, so they only enqueue work for the UI goroutine.
+func (a *App) registerEvents(h *host.Host) {
+	host.On(h, appcore.EventSearchModsUpdated, func(update appview.SearchModsUpdate) {
+		a.enqueueEvent(false, func() { a.handleSearchUpdate(update) })
+	})
+	host.OnEvent(h, appcore.EventDownloadStatesUpdated, func() {
+		a.enqueueEvent(false, a.handleDownloadStatesUpdated)
+	})
+	host.On(h, appcore.EventDownloadQueueUpdated, func(state appview.DownloadQueueState) {
+		a.enqueueEvent(true, func() { a.handleQueueUpdate(state) })
+	})
+	host.On(h, appcore.EventDownloadFailed, func(failed appstructs.DownloadFailedEvent) {
+		a.enqueueEvent(false, func() { a.handleDownloadFailed(failed) })
+	})
+	host.OnEvent(h, appcore.EventDownloadCompleted, func() {
+		a.enqueueEvent(false, a.handleDownloadCompleted)
+	})
+	host.On(h, appcore.EventMinecraftDirChanged, func(string) {
+		a.enqueueEvent(false, a.handleMinecraftDirChanged)
+	})
+	host.On(h, appcore.EventSelectedVersionChanged, func(version structs.VersionInfo) {
+		a.enqueueEvent(false, func() { a.handleSelectedVersionChanged(version) })
+	})
+	host.OnEvent(h, appcore.EventUsageStatsUpdated, func() {
+		a.enqueueEvent(false, a.handleUsageStatsUpdated)
+	})
+	host.On(h, appcore.EventExtensionModsAccepted, func(update appview.SearchModsUpdate) {
+		a.enqueueEvent(false, func() { a.handleExtensionModsAccepted(update) })
+	})
+}
+
+// handleSearchUpdate merges a typed search page update into the download view.
+func (a *App) handleSearchUpdate(update appview.SearchModsUpdate) {
+	accepted, refresh := a.search.ApplySearchUpdate(update)
+	if accepted {
+		a.refreshDownloadView()
 	}
-	a.updateStatus()
+	if refresh {
+		a.refreshDownloadStates()
+	}
+}
+
+func (a *App) handleDownloadStatesUpdated() { a.refreshDownloadStates() }
+
+func (a *App) handleQueueUpdate(state appview.DownloadQueueState) { a.applyQueue(state) }
+
+func (a *App) handleDownloadFailed(failed appstructs.DownloadFailedEvent) {
+	fileName := failed.FileName
+	if fileName == "" {
+		fileName = i18n.T("download.errors.unknownFile")
+	}
+	reason := failed.Reason
+	if reason == "" {
+		reason = i18n.T("download.errors.generic")
+	}
+	a.toastT("download.errors.failedWithReason", map[string]string{"fileName": fileName, "reason": reason})
+	a.refreshDownloadStates()
+}
+
+func (a *App) handleDownloadCompleted() { a.queueState.NoteDownloadCompleted() }
+
+func (a *App) handleMinecraftDirChanged() { go a.refreshMinecraft() }
+
+func (a *App) handleSelectedVersionChanged(version structs.VersionInfo) {
+	a.applySelectedVersion(version, true)
+}
+
+func (a *App) handleUsageStatsUpdated() { go a.refreshUsageStats() }
+
+func (a *App) handleExtensionModsAccepted(update appview.SearchModsUpdate) {
+	if a.search.ApplyExtensionResults(update.Results) {
+		a.switchView(ViewDownload)
+		a.downloadPage().Refresh()
+		a.toastT("download.queued")
+		a.refreshDownloadStates()
+	}
 }
 
 // applySelectedVersion adopts a core version snapshot without scheduling a
@@ -96,7 +121,7 @@ func (a *App) applySelectedVersion(version structs.VersionInfo, markLoaded bool)
 }
 
 // applyQueue projects a queue snapshot onto the drawer, dock and page labels.
-func (a *App) applyQueue(state appstructs.DownloadQueueState) {
+func (a *App) applyQueue(state appview.DownloadQueueState) {
 	wasActive := a.queueState.Queue.Active
 	a.queueState.ApplyQueue(state)
 	a.queueState.SyncPresentation()

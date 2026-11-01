@@ -5,8 +5,20 @@ Modrinth and CurseForge metadata, shows compatible mod versions, installs mods
 into a `mods` directory, lists local mods, removes local mod files, and manages
 the metadata cache.
 
-Most service and domain logic lives in `mod-downloader-core`, which is vendored
-in this repository as the `core` module through a local `replace` directive.
+Most service and domain logic lives in the shared `core` module. During the
+current migration stage this repository does not use a git submodule: `core` is a
+symlink to the sibling GUI checkout (`../mod-downloader-gui-v3/core`), and
+`go.mod` keeps `replace github.com/link-fgfgui/mod-downloader/core => ./core`.
+
+Keep `mod-downloader-cli` and `mod-downloader-gui-v3` as sibling directories, or
+recreate the link before building:
+
+```sh
+ln -s ../mod-downloader-gui-v3/core core
+```
+
+The follow-up work (shared host/event/settings layer for GUI and TUI) is tracked in
+[`docs/architecture/core-gui-tui-adaptation-plan.md`](docs/architecture/core-gui-tui-adaptation-plan.md).
 
 ## Requirements
 
@@ -32,6 +44,38 @@ For local development you can also run the CLI directly:
 ```sh
 go run ./cmd/mod-downloader-cli --help
 ```
+
+## Module layout
+
+This repository is the CLI/TUI module (`github.com/link-fgfgui/mod-downloader-cli`).
+The shared domain layer lives in the sibling GUI checkout:
+
+```text
+mod-downloader-proj/
+  mod-downloader-cli/        this module
+  mod-downloader-gui-v3/     Wails GUI module
+    core/                    shared core module
+```
+
+The committed `go.work` resolves the CLI, the GUI and `core` from the sibling
+checkout, so a normal `go build ./...` / `go test ./...` needs no symlink. The
+`core` symlink (`core -> ../mod-downloader-gui-v3/core`) remains as a fallback
+for tools that build a single module in isolation. Restore it with:
+
+```sh
+make bootstrap        # runs scripts/bootstrap-core.sh
+```
+
+On Windows, enable symlink support before cloning:
+
+```sh
+git config --global core.symlinks true
+```
+
+CI must check out both repositories side by side (or run `make bootstrap`)
+before building. Release builds will eventually consume a tagged `core` version
+and drop the `replace` directives; until then the workspace is the supported
+development layout.
 
 ## Logging
 

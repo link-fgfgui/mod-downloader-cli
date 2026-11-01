@@ -58,7 +58,7 @@ const (
 var (
 	languageValues = []string{"system", "zh", "en"}
 	themeValues    = []string{"dark", "light", "system"}
-	releaseValues  = []string{"release", "beta", "alpha"}
+	releaseValues  = []string{"latest", "release", "beta", "alpha"}
 )
 
 func newSettingsPage(a *App) *settingsPage {
@@ -162,6 +162,7 @@ func (v *settingsPage) buildForm() {
 	v.release = tview.NewDropDown()
 	v.release.SetLabel(uiText("releaseVariant") + " ")
 	v.release.SetOptions([]string{
+		i18n.T("settings.releaseType.latest"),
 		i18n.T("settings.releaseType.stable"),
 		i18n.T("settings.releaseType.beta"),
 		i18n.T("settings.releaseType.alpha"),
@@ -269,12 +270,12 @@ func (v *settingsPage) buildForm() {
 				if value == "" {
 					v.cfKey = uistate.KeyDraft{Clear: true}
 				}
-				go a.saveApiKeys(uistate.BuildSaveApiKeysRequest(v.cfKey, v.mrKey))
+				go a.saveAPIKeys(uistate.BuildSaveAPIKeysRequest(v.cfKey, v.mrKey))
 			})
 	})
 	v.form.AddButton(i18n.T("settings.apiKeys.curseforge.clear"), func() {
 		v.cfKey = uistate.KeyDraft{Clear: true}
-		go a.saveApiKeys(uistate.BuildSaveApiKeysRequest(v.cfKey, v.mrKey))
+		go a.saveAPIKeys(uistate.BuildSaveAPIKeysRequest(v.cfKey, v.mrKey))
 	})
 
 	v.addTextItem(settingsTextModrinth, "Modrinth", "")
@@ -285,12 +286,12 @@ func (v *settingsPage) buildForm() {
 				if value == "" {
 					v.mrKey = uistate.KeyDraft{Clear: true}
 				}
-				go a.saveApiKeys(uistate.BuildSaveApiKeysRequest(v.cfKey, v.mrKey))
+				go a.saveAPIKeys(uistate.BuildSaveAPIKeysRequest(v.cfKey, v.mrKey))
 			})
 	})
 	v.form.AddButton(i18n.T("settings.apiKeys.modrinth.clear"), func() {
 		v.mrKey = uistate.KeyDraft{Clear: true}
-		go a.saveApiKeys(uistate.BuildSaveApiKeysRequest(v.cfKey, v.mrKey))
+		go a.saveAPIKeys(uistate.BuildSaveAPIKeysRequest(v.cfKey, v.mrKey))
 	})
 }
 
@@ -423,8 +424,8 @@ func (v *settingsPage) keyStatus(curseforge bool, d uistate.SettingsDrafts) stri
 	var has bool
 	if curseforge {
 		label = i18n.T("settings.apiKeys.curseforge.label")
-		masked = v.app.settings.CurseforgeKeyMask
-		has = v.app.settings.HasCurseforgeKey
+		masked = v.app.settings.CurseForgeKeyMask
+		has = v.app.settings.HasCurseForgeKey
 		if v.cfKey.Clear {
 			has = false
 		}

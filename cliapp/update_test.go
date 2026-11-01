@@ -3,7 +3,7 @@ package cliapp
 import (
 	"testing"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
+	"github.com/link-fgfgui/mod-downloader/core/models"
 )
 
 func sampleUpdates() []modUpdate {

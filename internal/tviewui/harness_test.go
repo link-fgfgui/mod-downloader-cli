@@ -8,8 +8,9 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/rivo/tview"
 
+	"github.com/link-fgfgui/mod-downloader/core/host"
+
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
-	"github.com/link-fgfgui/mod-downloader-cli/internal/tuihost"
 )
 
 // testApp renders the shell on a deterministic simulation screen without
@@ -22,8 +23,7 @@ type testApp struct {
 
 func newTestApp(t *testing.T, w, h int) *testApp {
 	t.Helper()
-	host := tuihost.New(tuihost.Options{})
-	a := New(host)
+	a := New(host.New(host.Options{}))
 	// Tests are deterministic regardless of the host locale.
 	i18n.Apply(i18n.LanguageEnglish)
 	a.rebuildAllText()

@@ -7,12 +7,11 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
-	"github.com/link-fgfgui/mod-downloader-cli/internal/tuihost"
 )
 
 // This file drives the real tview event loop through SimulationScreen input
@@ -315,14 +314,13 @@ func TestLiveQueueDockToggle(t *testing.T) {
 
 	l.pressRune('2')
 	l.waitFor("download view", func(a *App) bool { return a.active == ViewDownload })
-	l.app.enqueueEvent(tuihost.Event{
-		Kind: tuihost.EventDownloadQueueUpdated,
-		Payload: appstructs.DownloadQueueState{
+	l.app.enqueueEvent(true, func() {
+		l.app.handleQueueUpdate(appview.DownloadQueueState{
 			Pending: 1,
-			Items: []appstructs.DownloadQueueItem{
+			Items: []appview.DownloadQueueItem{
 				{ID: "pending-1", Status: "pending", Title: "Sodium"},
 			},
-		},
+		})
 	})
 	l.waitFor("queue state applied", func(a *App) bool {
 		return a.queueState.Queue.Pending == 1 && len(a.queueState.Queue.Items) == 1
@@ -455,15 +453,14 @@ func TestLiveEventStormKeepsInputResponsive(t *testing.T) {
 	l.waitFor("download view", func(a *App) bool { return a.active == ViewDownload })
 	const snapshots = 500
 	for i := 0; i < snapshots; i++ {
-		l.app.enqueueEvent(tuihost.Event{
-			Kind: tuihost.EventDownloadQueueUpdated,
-			Payload: appstructs.DownloadQueueState{
+		l.app.enqueueEvent(true, func() {
+			l.app.handleQueueUpdate(appview.DownloadQueueState{
 				Active:  true,
 				Running: i,
-				Items: []appstructs.DownloadQueueItem{
+				Items: []appview.DownloadQueueItem{
 					{ID: "running", Status: "running", Title: "Sodium"},
 				},
-			},
+			})
 		})
 	}
 	l.waitFor("latest queue snapshot", func(a *App) bool {

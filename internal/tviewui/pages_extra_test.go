@@ -7,13 +7,14 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
-	"github.com/link-fgfgui/mod-downloader-cli/internal/tuihost"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
 )
 
@@ -56,9 +57,9 @@ func TestDownloadRunSearchAndAppend(t *testing.T) {
 	}
 
 	requestID := h.app.search.ActiveSearchRequestID
-	h.app.handleEvent(tuihost.Event{Kind: tuihost.EventSearchModsUpdated, Payload: appstructs.SearchModsUpdate{
+	h.app.handleSearchUpdate(appview.SearchModsUpdate{
 		RequestID: requestID, Results: results,
-	}})
+	})
 	if h.app.search.IsSearching || len(h.app.search.SearchResults) != len(results) {
 		t.Fatalf("search update not applied: %+v", h.app.search)
 	}
@@ -91,7 +92,7 @@ func TestDownloadInstallConfirmationAndMetadataRetry(t *testing.T) {
 	key := result.ID
 
 	// "update" requires confirmation and keeps the dialog open on Esc.
-	h.app.search.DownloadStates = []appstructs.ModDownloadButtonState{{Key: key, Status: "update", ConflictFileName: "old.jar"}}
+	h.app.search.DownloadStates = []appview.ModDownloadButtonState{{Key: key, Status: "update", ConflictFileName: "old.jar"}}
 	page.installCurrent(0)
 	if h.app.topDialog() == nil {
 		t.Fatal("update status did not open the confirmation dialog")
@@ -114,7 +115,7 @@ func TestDownloadInstallConfirmationAndMetadataRetry(t *testing.T) {
 
 	// Metadata-loading statuses retry the metadata instead of queueing.
 	h.app.search.DownloadingKeys = nil
-	h.app.search.DownloadStates = []appstructs.ModDownloadButtonState{{Key: key, Status: "metadataLoading"}}
+	h.app.search.DownloadStates = []appview.ModDownloadButtonState{{Key: key, Status: "metadataLoading"}}
 	page.installCurrent(0)
 	if h.app.topDialog() != nil {
 		t.Fatal("metadata retry opened a confirmation dialog")
@@ -157,7 +158,7 @@ func TestDownloadInstallBatchAndStatuses(t *testing.T) {
 	}
 
 	for _, status := range []string{"installed", "update", "conflict", "incompatible", "metadataLoading", "metadataFailed", "install", ""} {
-		glyph, label := downloadStateGlyph(h.app.theme, appstructs.ModDownloadButtonState{Status: status})
+		glyph, label := downloadStateGlyph(h.app.theme, appview.ModDownloadButtonState{Status: status})
 		if glyph == "" {
 			t.Fatalf("status %q has no glyph", status)
 		}
@@ -170,7 +171,7 @@ func TestDownloadInstallBatchAndStatuses(t *testing.T) {
 func TestDownloadQueueRowsAndItemText(t *testing.T) {
 	results := []models.ModProject{projectAt(0), projectAt(1), projectAt(2)}
 	h, page := downloadPageFixture(t, results)
-	h.app.queueState.Queue.Items = []appstructs.DownloadQueueItem{
+	h.app.queueState.Queue.Items = []appview.DownloadQueueItem{
 		{ID: "run", ProjectID: "mod-0", Status: "running", Title: "Running", TotalBytes: 10, BytesComplete: 5},
 		{ID: "pending", ProjectID: "mod-1", Status: "pending", Title: "Pending"},
 		{ID: "failed", ProjectID: "mod-2", Status: "failed", Title: "Failed"},
@@ -247,7 +248,7 @@ func TestDownloadChooseDirAndBatchUnpin(t *testing.T) {
 	page.selected["modrinth:mod-0"] = true
 	page.batchDownload()
 	page.batchUnpin()
-	h.app.search.DownloadStates = []appstructs.ModDownloadButtonState{{Key: "modrinth:mod-0", Status: "installed"}}
+	h.app.search.DownloadStates = []appview.ModDownloadButtonState{{Key: "modrinth:mod-0", Status: "installed"}}
 	page.ClearFocus()
 	if len(page.selected) != 0 {
 		t.Fatal("ClearFocus did not clear the selection")
@@ -285,7 +286,7 @@ func manageFixture() []structs.ModInfo {
 			ID: "sodium", Name: "Sodium", FileName: "sodium.jar", Path: "/mods/sodium.jar",
 			Enabled: true, Loaders: []string{"fabric"}, Categories: []string{"Optimization"},
 			OnlinePlatform: "modrinth", OnlineProjectID: "sodium", OnlineVersionID: "v1",
-			JijMods: []structs.JijModInfo{{ID: "jij", Name: "Jij"}},
+			JIJMods: []structs.JIJModInfo{{ID: "jij", Name: "JIJ"}},
 		},
 		{ID: "sodium-extra", Name: "Sodium Extra", FileName: "sodium.jar", Path: "/mods/sodium.jar", Enabled: true, Loaders: []string{"fabric"}},
 		{ID: "lithium", Name: "Lithium", FileName: "lithium.jar", Path: "/mods/lithium.jar", Enabled: false, Loaders: []string{"fabric"}},
@@ -510,7 +511,7 @@ func TestManageFavoriteAndVersionGuards(t *testing.T) {
 }
 
 func TestManageRowHelpers(t *testing.T) {
-	groups := uistate.BuildGroups(manageFixture())
+	groups := appcore.BuildLocalModGroups(manageFixture(), "Fabric")
 	page := newTestApp(t, 100, 30).app.managePage()
 	page.groups = groups
 	page.filtered = groups
@@ -800,10 +801,10 @@ func TestFavoritesDraftsAndHelpers(t *testing.T) {
 	if draft.MinecraftVersion != "1.20.1" || draft.ModLoader != "Fabric" || draft.ModID != "sodium" {
 		t.Fatalf("project draft=%+v", draft)
 	}
-	groups := uistate.BuildGroups([]structs.ModInfo{{
+	groups := appcore.BuildLocalModGroups([]structs.ModInfo{{
 		ID: "sodium", Name: "Sodium", OnlinePlatform: "modrinth", OnlineProjectID: "sodium",
 		OnlineSlug: "sodium", Categories: []string{"Optimization"},
-	}})
+	}}, "Fabric")
 	groupDraft := favoriteDraftFromGroup(groups[0], h.app)
 	if groupDraft.ModID != "sodium" || groupDraft.Platform != "modrinth" {
 		t.Fatalf("group draft=%+v", groupDraft)
@@ -883,8 +884,8 @@ func TestUnpinPageActions(t *testing.T) {
 
 // --- settings ---------------------------------------------------------------
 
-func settingsViewFixture() appstructs.SettingsView {
-	return appstructs.SettingsView{
+func settingsViewFixture() appview.SettingsView {
+	return appview.SettingsView{
 		Theme:                      "light",
 		Language:                   "zh",
 		SimpleMode:                 true,
@@ -900,8 +901,8 @@ func settingsViewFixture() appstructs.SettingsView {
 		CacheDir:                   "/tmp/cache",
 		CachePath:                  "/tmp/cache/mods.gob.zst",
 		MinecraftDir:               "/tmp/.minecraft",
-		CurseforgeKeyMask:          "****abcd",
-		HasCurseforgeKey:           true,
+		CurseForgeKeyMask:          "****abcd",
+		HasCurseForgeKey:           true,
 		ModrinthKeyMask:            "****efgh",
 		HasModrinthKey:             false,
 	}
@@ -919,7 +920,7 @@ func TestSettingsRefreshProjectsSnapshot(t *testing.T) {
 	if idx, _ := page.theme.GetCurrentOption(); idx != 1 {
 		t.Fatalf("theme index=%d, want light", idx)
 	}
-	if idx, _ := page.release.GetCurrentOption(); idx != 1 {
+	if idx, _ := page.release.GetCurrentOption(); idx != 2 {
 		t.Fatalf("release index=%d, want beta", idx)
 	}
 	if !page.simpleMode.IsChecked() || !page.cleanup.IsChecked() || !page.mcim.IsChecked() || !page.adaptive.IsChecked() || !page.verifySHA1.IsChecked() {

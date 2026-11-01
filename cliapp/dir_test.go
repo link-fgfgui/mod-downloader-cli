@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
 func writeVersionManifest(t *testing.T, versionDir, id, mcVersion, loader string) {

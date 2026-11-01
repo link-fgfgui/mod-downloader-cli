@@ -25,7 +25,7 @@
 
 ~~~
 cmd/mod-downloader-cli
-  └─ internal/tuihost          // 与 UI 无关：core service + HTTP + 事件 sink
+  └─ core/host                 // 与 UI 无关：core service + HTTP + 类型化事件分发（与 GUI 共享）
        └─ internal/tviewui     // 唯一 TUI（旧 tui 包在 P2 删除）
             ├─ app.go          // Application + Pages + 侧栏 + 状态栏
             ├─ theme.go        // tcell 颜色 + 边框
@@ -97,7 +97,7 @@ cmd/mod-downloader-cli
 ### P1：Host 解耦（不改变 UI 行为）
 
 - 把 tui/host.go 中与 Bubble Tea 绑定的 ConfigureProgram(*tea.Program) 改为 UI 无关的 SetEventSink(func(Event))。
-- 抽出 internal/tuihost：core service、HTTP server、事件分发、版本信息。
+- 抽出 core/host（最初为 internal/tuihost，Phase 1 合并到 core）：core service、HTTP server、类型化事件分发、版本信息。
 - Bubble Tea 适配层注册 sink：program.Send(coreEventMsg{...})。
 - tview 适配层注册 sink：app.QueueUpdateDraw(func(){ controller.Handle(ev) })。
 - 现有测试全部保持通过。
@@ -119,7 +119,7 @@ cmd/mod-downloader-cli
 **删除旧 Bubble Tea TUI（同一提交）：**
 
 - 删除 tui/app.go、view_*.go、modal.go、components.go、overlay.go、drawer_queue.go、target_modal.go、pathpicker.go、help_modal.go、layout.go、frame.go、theme.go、format.go、commands.go、messages.go 等 BT 展示层。
-- 保留并迁出 host 相关代码到 internal/tuihost；保留 internal/uistate、i18n、kit 中仍被新 UI 使用的部分。
+- 保留并迁出 host 相关代码到 core/host；保留 internal/uistate、i18n、kit 中仍被新 UI 使用的部分。
 - 删除仅测试旧 TUI 的测试；新 UI 先建立 SimulationScreen 基础测试。
 
 验收：仓库只存在一套 TUI；main 可编译并显示 6 个占位页；50/80/120 列布局正确；模拟屏幕测试通过。

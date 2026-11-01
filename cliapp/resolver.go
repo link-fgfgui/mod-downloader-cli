@@ -10,11 +10,12 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/global"
-	"github.com/link-fgfgui/mod-downloader-core/modbridge"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/global"
+	"github.com/link-fgfgui/mod-downloader/core/modbridge"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
 
 // platformModrinth / platformCurseforge are the canonical lowercase platform
@@ -37,7 +38,7 @@ var (
 	lookupProjectBySlugFn = func(svc *appcore.Service, platform, slug, mcVersion, modLoader string) (models.ModProject, bool) {
 		return svc.LookupProjectBySlug(platform, slug, mcVersion, modLoader)
 	}
-	searchModsTextFn = func(svc *appcore.Service, req appstructs.SearchModsRequest) appstructs.SearchModsUpdate {
+	searchModsTextFn = func(svc *appcore.Service, req appstructs.SearchModsRequest) appview.SearchModsUpdate {
 		return svc.SearchModsTextCollect(req)
 	}
 	listMatchingVersionsFn = func(svc *appcore.Service, project models.ModProject, mcVersion, modLoader string) []models.ModVersion {

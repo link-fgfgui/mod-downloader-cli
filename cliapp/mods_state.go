@@ -12,8 +12,8 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
 const disabledSuffix = ".jar.disabled"

@@ -3,10 +3,10 @@ package uistate
 import (
 	"testing"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
 
 func project(id string) models.ModProject {
@@ -24,7 +24,7 @@ func TestSearchPaginationAppend(t *testing.T) {
 	for i := 0; i < SearchPageSize; i++ {
 		page1 = append(page1, project("a"+string(rune('0'+i))))
 	}
-	state.ApplySearchUpdate(appstructs.SearchModsUpdate{RequestID: reqID, Results: page1, Loading: false})
+	state.ApplySearchUpdate(appview.SearchModsUpdate{RequestID: reqID, Results: page1, Loading: false})
 	if len(state.SearchResults) != SearchPageSize || !state.HasMoreResults {
 		t.Fatalf("full first page must set hasMoreResults: %#v", state)
 	}
@@ -36,7 +36,7 @@ func TestSearchPaginationAppend(t *testing.T) {
 		t.Fatalf("append search should proceed at offset %d, got ok=%v offset=%d", SearchPageSize, ok2, offset2)
 	}
 	page2 := []models.ModProject{project("tail")}
-	state.ApplySearchUpdate(appstructs.SearchModsUpdate{RequestID: reqID2, Results: page2, Append: true, Loading: false})
+	state.ApplySearchUpdate(appview.SearchModsUpdate{RequestID: reqID2, Results: page2, Append: true, Loading: false})
 	if len(state.SearchResults) != SearchPageSize+1 {
 		t.Fatalf("append should merge onto the base page, got %d", len(state.SearchResults))
 	}
@@ -57,9 +57,9 @@ func TestSearchRaceDiscard(t *testing.T) {
 	if staleID == freshID {
 		t.Fatal("request ids must differ")
 	}
-	state.ApplySearchUpdate(appstructs.SearchModsUpdate{RequestID: freshID, Results: []models.ModProject{project("new")}})
+	state.ApplySearchUpdate(appview.SearchModsUpdate{RequestID: freshID, Results: []models.ModProject{project("new")}})
 
-	accepted, _ := state.ApplySearchUpdate(appstructs.SearchModsUpdate{RequestID: staleID, Results: []models.ModProject{project("old")}})
+	accepted, _ := state.ApplySearchUpdate(appview.SearchModsUpdate{RequestID: staleID, Results: []models.ModProject{project("old")}})
 	if accepted {
 		t.Fatal("stale request must be discarded")
 	}
@@ -98,7 +98,7 @@ func TestShowResultsResetsPaging(t *testing.T) {
 
 func TestQueueMembershipDiff(t *testing.T) {
 	state := SearchState{}
-	items := []appstructs.DownloadQueueItem{{ID: "1", Status: "running"}, {ID: "2", Status: "pending"}}
+	items := []appview.DownloadQueueItem{{ID: "1", Status: "running"}, {ID: "2", Status: "pending"}}
 	if !state.ApplyQueueMembership(items) {
 		t.Fatal("first membership should report a change")
 	}
@@ -126,8 +126,8 @@ func TestExtensionResults(t *testing.T) {
 
 func TestQueueBellRingsOncePerSuccessfulCycle(t *testing.T) {
 	state := NewQueueState()
-	active := appstructs.DownloadQueueState{Active: true, Running: 1}
-	idle := appstructs.DownloadQueueState{Active: false}
+	active := appview.DownloadQueueState{Active: true, Running: 1}
+	idle := appview.DownloadQueueState{Active: false}
 
 	if state.ApplyQueue(active) {
 		t.Fatal("no bell while queue starts")
@@ -143,8 +143,8 @@ func TestQueueBellRingsOncePerSuccessfulCycle(t *testing.T) {
 
 func TestQueueBellSilentWithoutCompletion(t *testing.T) {
 	state := NewQueueState()
-	state.ApplyQueue(appstructs.DownloadQueueState{Active: true, Running: 1})
-	if state.ApplyQueue(appstructs.DownloadQueueState{Active: false}) {
+	state.ApplyQueue(appview.DownloadQueueState{Active: true, Running: 1})
+	if state.ApplyQueue(appview.DownloadQueueState{Active: false}) {
 		t.Fatal("failure/cancel-only cycles must stay silent")
 	}
 }
@@ -154,8 +154,8 @@ func TestQueuePresentationAutoSwitchAndCollapse(t *testing.T) {
 	state.Open = true
 
 	// Reminder-only queue -> switch to optional tab.
-	state.ApplyQueue(appstructs.DownloadQueueState{
-		OptionalReminders: []appstructs.OptionalDependencyReminder{{ID: "r1"}},
+	state.ApplyQueue(appview.DownloadQueueState{
+		OptionalReminders: []appview.OptionalDependencyReminder{{ID: "r1"}},
 	})
 	state.SyncPresentation()
 	if state.ActiveTab != QueueTabOptional || !state.Open {
@@ -163,14 +163,14 @@ func TestQueuePresentationAutoSwitchAndCollapse(t *testing.T) {
 	}
 
 	// Reminders cleared while on optional -> back to downloads.
-	state.ApplyQueue(appstructs.DownloadQueueState{Active: true, Pending: 1, Items: []appstructs.DownloadQueueItem{{ID: "d1"}}})
+	state.ApplyQueue(appview.DownloadQueueState{Active: true, Pending: 1, Items: []appview.DownloadQueueItem{{ID: "d1"}}})
 	state.SyncPresentation()
 	if state.ActiveTab != QueueTabDownloads {
 		t.Fatalf("expected downloads tab, got %q", state.ActiveTab)
 	}
 
 	// Nothing visible -> collapse.
-	state.ApplyQueue(appstructs.DownloadQueueState{})
+	state.ApplyQueue(appview.DownloadQueueState{})
 	state.SyncPresentation()
 	if state.Open {
 		t.Fatal("empty queue must collapse the drawer")
@@ -178,7 +178,7 @@ func TestQueuePresentationAutoSwitchAndCollapse(t *testing.T) {
 }
 
 func TestQueueReminderOnlyAndCanRemove(t *testing.T) {
-	q := QueueState{Queue: appstructs.DownloadQueueState{Pending: 0, MessageCount: 2}}
+	q := QueueState{Queue: appview.DownloadQueueState{Pending: 0, MessageCount: 2}}
 	if !q.ReminderOnly() {
 		t.Fatal("reminderOnly must be true with no active downloads but pending messages")
 	}
@@ -193,10 +193,10 @@ func TestQueueReminderOnlyAndCanRemove(t *testing.T) {
 func TestManageGroupingByPhysicalPath(t *testing.T) {
 	mods := []structs.ModInfo{
 		{ID: "sodium", FileName: "sodium.jar", Path: "/mods/sodium.jar", Enabled: true,
-			JijMods: []structs.JijModInfo{{ID: "jij-a", Name: "A"}, {ID: "jij-a", Name: "A dup"}}},
+			JIJMods: []structs.JIJModInfo{{ID: "jij-a", Name: "A"}, {ID: "jij-a", Name: "A dup"}}},
 		{ID: "sodium-extra", FileName: "sodium.jar", Path: "/mods/sodium.jar", Enabled: true},
 	}
-	groups := BuildGroups(mods)
+	groups := appcore.BuildLocalModGroups(mods, "")
 	if len(groups) != 1 {
 		t.Fatalf("expected a single grouped JAR, got %d", len(groups))
 	}
@@ -207,17 +207,17 @@ func TestManageGroupingByPhysicalPath(t *testing.T) {
 	if len(g.Strong) != 2 {
 		t.Fatalf("strong declarations must include both mods, got %d", len(g.Strong))
 	}
-	if len(g.Jij) != 1 {
-		t.Fatalf("duplicate JIJ entries must be de-duplicated, got %d", len(g.Jij))
+	if len(g.JIJ) != 1 {
+		t.Fatalf("duplicate JIJ entries must be de-duplicated, got %d", len(g.JIJ))
 	}
 }
 
 func TestManageIncompatibleFoldingAndSelectability(t *testing.T) {
 	fabric := structs.ModInfo{ID: "a", FileName: "a.jar", Loaders: []string{"fabric"}}
 	forgeOnly := structs.ModInfo{ID: "b", FileName: "b.jar", Loaders: []string{"forge"}}
-	groups := BuildGroups([]structs.ModInfo{fabric, forgeOnly})
+	groups := appcore.BuildLocalModGroups([]structs.ModInfo{fabric, forgeOnly}, "Fabric")
 
-	rows, incompat := PartitionAndBuildRows(groups, "Fabric", false)
+	rows, incompat := PartitionAndBuildRows(groups, false)
 	if incompat != 1 {
 		t.Fatalf("expected 1 incompatible group, got %d", incompat)
 	}
@@ -231,7 +231,7 @@ func TestManageIncompatibleFoldingAndSelectability(t *testing.T) {
 		t.Fatal("toggle header must not be selectable")
 	}
 
-	rows, _ = PartitionAndBuildRows(groups, "Fabric", true)
+	rows, _ = PartitionAndBuildRows(groups, true)
 	if len(rows) != 3 {
 		t.Fatalf("expanded rows wrong: %d", len(rows))
 	}
@@ -243,7 +243,7 @@ func TestManageIncompatibleFoldingAndSelectability(t *testing.T) {
 func TestManageFilterAndSearch(t *testing.T) {
 	a := structs.ModInfo{ID: "sodium", FileName: "sodium.jar", Name: "Sodium", Enabled: true, Categories: []string{"Optimization"}}
 	b := structs.ModInfo{ID: "lithium", FileName: "lithium.jar", Name: "Lithium", Enabled: false}
-	groups := BuildGroups([]structs.ModInfo{a, b})
+	groups := appcore.BuildLocalModGroups([]structs.ModInfo{a, b}, "")
 
 	if got := FilterGroups(groups, "optim", FilterAll); len(got) != 1 || got[0].Primary.ID != "sodium" {
 		t.Fatalf("category search failed: %#v", got)
@@ -257,11 +257,11 @@ func TestManageFilterAndSearch(t *testing.T) {
 }
 
 func TestManagePrimaryBatchActionAndPaths(t *testing.T) {
-	group := BuildGroups([]structs.ModInfo{{ID: "a", FileName: "a.jar", Path: "/m/a.jar", Enabled: true}})
+	group := appcore.BuildLocalModGroups([]structs.ModInfo{{ID: "a", FileName: "a.jar", Path: "/m/a.jar", Enabled: true}}, "")
 	if PrimaryBatchAction(group) != "disable" {
 		t.Fatal("enabled selection should produce a disable action")
 	}
-	group2 := BuildGroups([]structs.ModInfo{{ID: "a", FileName: "a.jar", Path: "/m/a.jar", Enabled: false}})
+	group2 := appcore.BuildLocalModGroups([]structs.ModInfo{{ID: "a", FileName: "a.jar", Path: "/m/a.jar", Enabled: false}}, "")
 	if PrimaryBatchAction(group2) != "enable" {
 		t.Fatal("disabled selection should produce an enable action")
 	}
@@ -271,51 +271,22 @@ func TestManagePrimaryBatchActionAndPaths(t *testing.T) {
 	}
 }
 
-func TestFavoriteScopeMatching(t *testing.T) {
-	mod := storage.FavoriteMod{Platform: "Modrinth", ModID: "Sodium", MinecraftVersion: "1.20.1", ModLoader: "Fabric"}
-	if !FavoriteMatchesScope(mod, "1.20.1", "fabric") {
-		t.Fatal("scope must match case-insensitively on loader and exactly on version")
-	}
-	if FavoriteMatchesScope(mod, "1.20.2", "fabric") {
-		t.Fatal("different MC version must not match")
-	}
-	if FavoriteMatchesScope(mod, "", "") {
-		t.Fatal("unscoped tuple must not match")
-	}
-}
-
-func TestFavoriteListPartitioning(t *testing.T) {
-	lists := []storage.FavoriteList{
-		{ID: "1", Name: "B", MinecraftVersion: "1.20.1", ModLoader: "Fabric", Pinned: false, SortOrder: 2},
-		{ID: "2", Name: "A", MinecraftVersion: "1.20.1", ModLoader: "Fabric", Pinned: false, SortOrder: 1},
-		{ID: "3", Name: "Pinned", Pinned: true},
-		{ID: "4", Name: "Other", MinecraftVersion: "1.19", ModLoader: "Fabric"},
-	}
-	pinned, ungrouped := PartitionLists(lists, "1.20.1", "fabric")
-	if len(pinned) != 1 || pinned[0].ID != "3" {
-		t.Fatalf("pinned partition wrong: %#v", pinned)
-	}
-	if len(ungrouped) != 2 || ungrouped[0].ID != "2" || ungrouped[1].ID != "1" {
-		t.Fatalf("ungrouped ordering wrong: %#v", ungrouped)
-	}
-}
-
 func TestAPIKeySentinelResolution(t *testing.T) {
-	req := BuildSaveApiKeysRequest(KeyDraft{}, KeyDraft{Value: "new-mr"})
-	if req.CurseforgeApiKey != APIKeySentinel {
-		t.Fatalf("untouched curseforge key must keep sentinel, got %q", req.CurseforgeApiKey)
+	req := BuildSaveAPIKeysRequest(KeyDraft{}, KeyDraft{Value: "new-mr"})
+	if req.CurseForgeAPIKey != APIKeySentinel {
+		t.Fatalf("untouched curseforge key must keep sentinel, got %q", req.CurseForgeAPIKey)
 	}
-	if req.ModrinthApiKey != "new-mr" {
-		t.Fatalf("edited modrinth key must be sent, got %q", req.ModrinthApiKey)
+	if req.ModrinthAPIKey != "new-mr" {
+		t.Fatalf("edited modrinth key must be sent, got %q", req.ModrinthAPIKey)
 	}
-	cleared := BuildSaveApiKeysRequest(KeyDraft{Clear: true}, KeyDraft{Clear: true})
-	if cleared.CurseforgeApiKey != "" || cleared.ModrinthApiKey != "" {
+	cleared := BuildSaveAPIKeysRequest(KeyDraft{Clear: true}, KeyDraft{Clear: true})
+	if cleared.CurseForgeAPIKey != "" || cleared.ModrinthAPIKey != "" {
 		t.Fatalf("clear must send empty strings: %#v", cleared)
 	}
 }
 
 func TestSettingsDraftClamps(t *testing.T) {
-	view := appstructs.SettingsView{
+	view := appview.SettingsView{
 		FileConcurrency:       99,
 		ConcurrentDownloads:   0,
 		TargetDownloadRateMiB: 9.9,

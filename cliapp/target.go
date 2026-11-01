@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
+	"github.com/link-fgfgui/mod-downloader/core/models"
 )
 
 // InstallTarget is one parsed, project-level install request.

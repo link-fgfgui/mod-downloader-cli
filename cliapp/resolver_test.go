@@ -4,10 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/global"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/global"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
 
 // installSeams restores the real (network-bound) resolver seams after a test.
@@ -121,12 +122,12 @@ func TestResolverFallsBackToSearchAndErrorsNonInteractive(t *testing.T) {
 		return models.ModProject{}, false
 	}
 	searched := false
-	searchModsTextFn = func(_ *appcore.Service, req appstructs.SearchModsRequest) appstructs.SearchModsUpdate {
+	searchModsTextFn = func(_ *appcore.Service, req appstructs.SearchModsRequest) appview.SearchModsUpdate {
 		searched = true
 		if req.Query != "mini map" {
 			t.Fatalf("search query = %q, want %q", req.Query, "mini map")
 		}
-		return appstructs.SearchModsUpdate{Results: []models.ModProject{
+		return appview.SearchModsUpdate{Results: []models.ModProject{
 			projectRef("modrinth", "1", "minimap", "MiniMap", 100),
 			projectRef("curseforge", "2", "mini-map", "Mini Map", 90),
 		}}
@@ -150,8 +151,8 @@ func TestResolverSearchFallbackSingleResultAutoSelects(t *testing.T) {
 	lookupProjectBySlugFn = func(*appcore.Service, string, string, string, string) (models.ModProject, bool) {
 		return models.ModProject{}, false
 	}
-	searchModsTextFn = func(*appcore.Service, appstructs.SearchModsRequest) appstructs.SearchModsUpdate {
-		return appstructs.SearchModsUpdate{Results: []models.ModProject{
+	searchModsTextFn = func(*appcore.Service, appstructs.SearchModsRequest) appview.SearchModsUpdate {
+		return appview.SearchModsUpdate{Results: []models.ModProject{
 			projectRef("modrinth", "1", "appleskin", "AppleSkin", 10),
 		}}
 	}
@@ -171,8 +172,8 @@ func TestResolverNoResultsErrors(t *testing.T) {
 	lookupProjectBySlugFn = func(*appcore.Service, string, string, string, string) (models.ModProject, bool) {
 		return models.ModProject{}, false
 	}
-	searchModsTextFn = func(*appcore.Service, appstructs.SearchModsRequest) appstructs.SearchModsUpdate {
-		return appstructs.SearchModsUpdate{}
+	searchModsTextFn = func(*appcore.Service, appstructs.SearchModsRequest) appview.SearchModsUpdate {
+		return appview.SearchModsUpdate{}
 	}
 	svc := appcore.New(appcore.Options{})
 	target, _ := ParseInstallTarget("nope-nothing", "")

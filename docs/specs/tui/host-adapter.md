@@ -2,10 +2,13 @@
 
 The terminal client is split into two layers:
 
-- `internal/tuihost` — UI-neutral host: core service, HTTP server, lifecycle and
-  an event sink. It has no terminal or toolkit dependency.
+- `core/host` — UI-neutral host shared with the GUI: core service, HTTP server,
+  lifecycle, startup status and typed event dispatch. It has no terminal or
+  toolkit dependency.
 - `internal/tviewui` — the only TUI (tview/tcell): application shell, pages,
   dialogs and the right-side queue dock.
+- `internal/uistate` — UI state only (pagination, drafts, selection); domain
+  decisions come from `appcore`/`configs`.
 
 The old Bubble Tea package (`tui/`) has been removed; see
 [tview-migration.md](tview-migration.md) for the migration record.
@@ -24,14 +27,14 @@ normalizes empty values to `"dev"`, matching the GUI. The compile-time CurseForg
 key defaults via `configs.DefaultCurseforgeAPIKey`, also identical to the GUI.
 
 `tviewui.Run` calls `prepareLogging` before any startup work, builds the host,
-attaches the simulation/real screen, registers the event sink, starts the core,
-runs the tview event loop, and finally stops the event pump before shutting the
-host down. Tests use the unexported `run`/`runWith` variants to inject a
-SimulationScreen and wait for initial refreshes.
+attaches the simulation/real screen, registers typed event handlers, starts the
+core, runs the tview event loop, and finally stops the event pump before
+shutting the host down. Tests use the unexported `run`/`runWith` variants to
+inject a SimulationScreen and wait for initial refreshes.
 
-## Lifecycle (`internal/tuihost`)
+## Lifecycle (`core/host`)
 
-`tuihost.New(Options{Version, LoadMinecraftReleases, Config, LogLevel, LogToFileOnly})`
+`host.New(host.Options{Version, LoadMinecraftReleases, Config, Runtime, LogLevel, LogToFileOnly, DisableHTTPServer, HTTPAddr})`
 returns an unstarted host. `Start(ctx)` mirrors the GUI's startup:
 
 1. `appcore.New(Options{Config, Runtime, Version, LoadMinecraftReleases, OnEvent})`
@@ -43,10 +46,17 @@ returns an unstarted host. `Start(ctx)` mirrors the GUI's startup:
    and idempotent: a second call keeps the running core/server instead of
    replacing them. Tests may override the internal `startCore` seam to exercise
    startup failures and retries.
-2. `httpserver.New(httpserver.DefaultAddr, Options{OnEvent})` + `Start()`. A
+2. `httpserver.New(httpserver.DefaultAddr, Options{Accept: core.AcceptExtensionProjects})`
+   + `Start()`. The HTTP layer only decodes and encodes; extension resolution
+   and the `appcore.EventExtensionModsAccepted` event live in `appcore`. A
    listen failure (e.g. the GUI already owns port 18801) is logged and surfaced
    as a non-fatal `ServerNotice()` in the status bar — the TUI keeps running.
-3. `Runtime.DefaultCacheDir` is `os.Getwd()`, exactly as the GUI.
+3. `Runtime.DefaultCacheDir` defaults to `os.Getwd()` when the caller leaves it
+   empty, exactly as the GUI.
+
+`Host.StartupStatus()` exposes the typed `appstructs.StartupStatus`
+(`Ready`/`Stage`/`Error`/`ExtensionServerError`) so both adapters present the
+same failure surface.
 
 `appcore.Service.Startup`/`Shutdown`/`Close` are idempotent. A failed `Startup`
 tears down anything it initialized and may be retried. Shutdown order is fixed:
@@ -69,27 +79,31 @@ against a SimulationScreen with `os.Stderr` redirected and asserts that nothing
 
 ## Event bridge
 
-`Host.SetEventSink(func(Event))` is the only UI dependency. Core events are
-translated to UI-neutral values; the adapter decides how to marshal them:
+There is exactly one event taxonomy: `appcore.EventKind`. Adapters register
+typed handlers with `host.On[T](h, kind, func(T))` (or `host.OnEvent` for
+payload-less events); the payload assertion happens once inside `core/host`.
+`appcore.EventKind.Name()` returns the stable kebab-case wire name used by the
+Wails frontend.
 
-| core event | `tuihost.EventKind` | payload |
+| core event | wire name | payload |
 | :--- | :--- | :--- |
-| `searchModsUpdated` | `EventSearchModsUpdated` | `appstructs.SearchModsUpdate` |
-| `downloadStatesUpdated` | `EventDownloadStatesUpdated` | nil |
-| `downloadQueueUpdated` | `EventDownloadQueueUpdated` | `appstructs.DownloadQueueState` |
-| `downloadFailed` | `EventDownloadFailed` | `appstructs.DownloadFailedEvent` |
-| `downloadCompleted` | `EventDownloadCompleted` | nil |
-| `minecraftDirChanged` | `EventMinecraftDirChanged` | simplified dir string |
-| `selectedVersionChanged` | `EventSelectedVersionChanged` | `structs.VersionInfo` |
-| `usageStatsUpdated` | `EventUsageStatsUpdated` | nil |
-| `httpserver.ExtensionModsAcceptedEvent` | `EventExtensionModsAccepted` | `appstructs.SearchModsUpdate` |
+| `EventSearchModsUpdated` | `search-mods-updated` | `appstructs.SearchModsUpdate` |
+| `EventDownloadStatesUpdated` | `download-states-updated` | — |
+| `EventDownloadQueueUpdated` | `download-queue-updated` | `appstructs.DownloadQueueState` |
+| `EventDownloadFailed` | `download-failed` | `appstructs.DownloadFailedEvent` |
+| `EventDownloadCompleted` | `download-completed` | — |
+| `EventMinecraftDirChanged` | `minecraft-dir-changed` | simplified dir string |
+| `EventSelectedVersionChanged` | `selected-version-changed` | `structs.VersionInfo` |
+| `EventUsageStatsUpdated` | `usage-stats-updated` | — |
+| `EventExtensionModsAccepted` | `extension-mods-accepted` | `appstructs.SearchModsUpdate` |
 
-The tview adapter registers `App.enqueueEvent`, which never blocks the emitter:
-events are buffered and applied in batches by a pump goroutine through
-`Application.QueueUpdate`/`ForceDraw`. Queue snapshots in a batch collapse to the
-newest one, so download progress bursts cost one redraw. Unknown core event
-kinds and payloads that fail the contract assertion are logged at Warn instead
-of being dropped silently (`TestUnhandledEventsAreLogged`).
+The tview adapter registers handlers that call `App.enqueueEvent`, which never
+blocks the emitter: updates are buffered and applied in batches by a pump
+goroutine through `Application.QueueUpdate`/`ForceDraw`. Queue snapshots in a
+batch collapse to the newest one, so download progress bursts cost one redraw.
+Unknown core event kinds and payloads that fail the contract assertion are
+logged at Warn instead of being dropped silently
+(`core/host` `TestUnhandledEventsAreLogged`).
 
 `App.uiUpdate(f)` carries UI mutations requested by controller goroutines
 (search results, settings saves, favorite lists, …) through the same pump. This

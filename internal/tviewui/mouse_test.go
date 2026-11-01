@@ -7,8 +7,8 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 )

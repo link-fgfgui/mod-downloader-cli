@@ -13,7 +13,7 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
 
 	"github.com/link-fgfgui/mod-downloader-cli/cliapp/progress"
 )

@@ -11,13 +11,13 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/global"
-	"github.com/link-fgfgui/mod-downloader-core/logging"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
-	structs "github.com/link-fgfgui/mod-downloader-core/structs/minecraft"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/global"
+	"github.com/link-fgfgui/mod-downloader/core/logging"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -41,6 +41,9 @@ func newLiveApp(t *testing.T) *liveApp {
 
 func newLiveAppWith(t *testing.T, opts Options) *liveApp {
 	t.Helper()
+	if opts.InstanceAddr == "" {
+		opts.InstanceAddr = "127.0.0.1:0"
+	}
 	t.Chdir(t.TempDir())
 	cacheDir := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheDir)
@@ -218,7 +221,7 @@ func TestLiveSettingsControllers(t *testing.T) {
 			RequestsPerSecond:     3,
 		})
 		l.app.saveCacheDir(cacheDir)
-		l.app.saveApiKeys(uistate.BuildSaveApiKeysRequest(
+		l.app.saveAPIKeys(uistate.BuildSaveAPIKeysRequest(
 			uistate.KeyDraft{Value: "cf-key-12345678"},
 			uistate.KeyDraft{Clear: true},
 		))
@@ -237,7 +240,7 @@ func TestLiveSettingsControllers(t *testing.T) {
 		if a.settings.TargetDownloadRateMiB != 1.2 {
 			t.Errorf("target rate=%v", a.settings.TargetDownloadRateMiB)
 		}
-		if !a.settings.HasCurseforgeKey || strings.TrimSpace(a.settings.CurseforgeKeyMask) == "" {
+		if !a.settings.HasCurseForgeKey || strings.TrimSpace(a.settings.CurseForgeKeyMask) == "" {
 			t.Errorf("curseforge key not stored: %+v", a.settings)
 		}
 		if a.settings.HasModrinthKey {

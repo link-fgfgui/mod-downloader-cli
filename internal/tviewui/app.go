@@ -11,12 +11,13 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/link-fgfgui/mod-downloader-core/logging"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/host"
+	"github.com/link-fgfgui/mod-downloader/core/logging"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
-	"github.com/link-fgfgui/mod-downloader-cli/internal/tuihost"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
 )
 
@@ -87,6 +88,9 @@ type Options struct {
 	LoadMinecraftReleases bool
 	// LogLevel defaults to slog.LevelInfo (the zero value).
 	LogLevel slog.Level
+	// InstanceAddr overrides the single-instance sentinel address. Tests pass
+	// 127.0.0.1:0 so they never contend for the real extension port.
+	InstanceAddr string
 }
 
 // prepareLogging gives the core logger a file-only sink before any startup
@@ -125,21 +129,22 @@ func runWith(ctx context.Context, opts Options, screen tcell.Screen, started fun
 	}
 	prepareLogging(level)
 
-	host := tuihost.New(tuihost.Options{
+	h := host.New(host.Options{
 		Version:               opts.Version,
 		LoadMinecraftReleases: opts.LoadMinecraftReleases,
 		LogLevel:              level,
 		LogToFileOnly:         true,
+		InstanceAddr:          opts.InstanceAddr,
 	})
-	a := New(host)
+	a := New(h)
 	if screen != nil {
 		a.application.SetScreen(screen)
 	}
 
-	host.SetEventSink(a.enqueueEvent)
+	a.registerEvents(h)
 
-	if err := host.Start(ctx); err != nil {
-		host.Shutdown()
+	if err := h.Start(ctx); err != nil {
+		h.Shutdown()
 		return err
 	}
 	// The core now exists; controller methods may call it.
@@ -153,21 +158,20 @@ func runWith(ctx context.Context, opts Options, screen tcell.Screen, started fun
 	}
 
 	runErr := a.application.Run()
-	host.SetEventSink(nil)
 	a.stopSpinner()
 	a.stopEventPump()
 	a.waitEventPump()
 	if a.toastTimer != nil {
 		a.toastTimer.Stop()
 	}
-	host.Shutdown()
+	h.Shutdown()
 	return runErr
 }
 
 // App is the single tview application shell.
 type App struct {
 	application *tview.Application
-	host        *tuihost.Host
+	host        *host.Host
 	theme       Theme
 
 	width  int
@@ -194,7 +198,7 @@ type App struct {
 	mc         uistate.MinecraftState
 	search     uistate.SearchState
 	queueState uistate.QueueState
-	settings   appstructs.SettingsView
+	settings   appview.SettingsView
 	stats      storage.UsageStats
 
 	dialogs []*dialog
@@ -213,7 +217,7 @@ type App struct {
 	// Host events are buffered and applied in batches so a burst of download
 	// progress updates costs one redraw instead of one per event.
 	eventMu       sync.Mutex
-	pendingEvents []tuihost.Event
+	pendingEvents []pendingEvent
 	eventSignal   chan struct{}
 	eventDone     chan struct{}
 
@@ -246,16 +250,16 @@ type App struct {
 }
 
 // New builds the shell around an unstarted host.
-func New(host *tuihost.Host) *App {
+func New(h *host.Host) *App {
 	prefs := appstructs.AppPreferences{}
-	if host.Core() != nil {
-		prefs = host.Service().GetPreferences()
+	if h.Service() != nil {
+		prefs = h.Service().GetPreferences()
 	}
 	i18n.Apply(prefs.Language)
 
 	a := &App{
 		application: tview.NewApplication(),
-		host:        host,
+		host:        h,
 		theme:       resolveTheme(prefs.Theme),
 		mc:          uistate.NewMinecraftState(),
 		search:      uistate.SearchState{SelectedModLoader: uistate.DefaultModLoader},
@@ -263,7 +267,7 @@ func New(host *tuihost.Host) *App {
 		startupDone: make(chan struct{}),
 		// Leave the size unset so the first Draw always runs the responsive
 		// layout pass, even when the terminal happens to be 80x24.
-		offline: host.Core() == nil,
+		offline: h.Service() == nil,
 	}
 	a.theme.apply()
 	a.application.EnableMouse(true).EnablePaste(true)
@@ -413,22 +417,24 @@ func (a *App) busyStatus() string {
 	return spinnerFrames[a.busyFrame%len(spinnerFrames)] + " " + label
 }
 
-// eventUITask carries a UI update requested by a background goroutine. Routing
-// it through the event pump keeps such goroutines from blocking on
-// QueueUpdateDraw once the application has stopped.
-const eventUITask tuihost.EventKind = "ui-task"
+// pendingEvent is one buffered UI update. queue marks full queue snapshots so
+// only the newest one in a batch is applied; apply runs on the UI goroutine.
+type pendingEvent struct {
+	queue bool
+	apply func()
+}
 
 // uiUpdate runs f on the UI goroutine. It never blocks: a stopped application
 // simply drops the task instead of leaking the calling goroutine.
 func (a *App) uiUpdate(f func()) {
-	a.enqueueEvent(tuihost.Event{Kind: eventUITask, Payload: f})
+	a.enqueueEvent(false, f)
 }
 
-// enqueueEvent records a host event without blocking the emitting worker. Core
+// enqueueEvent records a UI update without blocking the emitting worker. Core
 // goroutines call this from download workers, so it must never wait on the UI.
-func (a *App) enqueueEvent(event tuihost.Event) {
+func (a *App) enqueueEvent(queue bool, apply func()) {
 	a.eventMu.Lock()
-	a.pendingEvents = append(a.pendingEvents, event)
+	a.pendingEvents = append(a.pendingEvents, pendingEvent{queue: queue, apply: apply})
 	a.eventMu.Unlock()
 	select {
 	case a.eventSignal <- struct{}{}:
@@ -503,13 +509,8 @@ func (a *App) flushEvents() {
 	batch = compactEvents(batch)
 	a.application.QueueUpdate(func() {
 		for _, event := range batch {
-			if event.Kind == eventUITask {
-				if task, ok := event.Payload.(func()); ok {
-					task()
-				}
-				continue
-			}
-			a.handleEvent(event)
+			event.apply()
+			a.updateStatus()
 		}
 		// ForceDraw is the only draw call that is safe inside a queued update.
 		a.application.ForceDraw()
@@ -528,10 +529,10 @@ func (a *App) flushEvents() {
 
 // compactEvents drops superseded queue snapshots: each queue event carries the
 // full state, so only the newest one in a batch is applied.
-func compactEvents(events []tuihost.Event) []tuihost.Event {
+func compactEvents(events []pendingEvent) []pendingEvent {
 	last := -1
 	for i, event := range events {
-		if event.Kind == tuihost.EventDownloadQueueUpdated {
+		if event.queue {
 			last = i
 		}
 	}
@@ -540,7 +541,7 @@ func compactEvents(events []tuihost.Event) []tuihost.Event {
 	}
 	compacted := events[:0]
 	for i, event := range events {
-		if event.Kind == tuihost.EventDownloadQueueUpdated && i != last {
+		if event.queue && i != last {
 			continue
 		}
 		compacted = append(compacted, event)
@@ -796,7 +797,7 @@ func (a *App) connectorLabel() string {
 }
 
 // applySettings stores the settings snapshot and re-applies language/theme.
-func (a *App) applySettings(view appstructs.SettingsView) {
+func (a *App) applySettings(view appview.SettingsView) {
 	a.settings = view
 	i18n.Apply(view.Language)
 	restyle := false

@@ -3,10 +3,10 @@ package tviewui
 import (
 	"testing"
 
-	"github.com/link-fgfgui/mod-downloader-core/appcore"
-	"github.com/link-fgfgui/mod-downloader-core/models"
-	"github.com/link-fgfgui/mod-downloader-core/storage"
-	appstructs "github.com/link-fgfgui/mod-downloader-core/structs"
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/storage"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
 )
@@ -51,7 +51,7 @@ func TestOfflineControllersAreNoOps(t *testing.T) {
 		{"savePreferredReleaseType", func() { a.savePreferredReleaseType(uistate.ReleaseTypeBeta) }},
 		{"saveNetworkSettings", func() { a.saveNetworkSettings(uistate.SettingsDrafts{}) }},
 		{"saveCacheDir", func() { a.saveCacheDir("/tmp/cache") }},
-		{"saveApiKeys", func() { a.saveApiKeys(appstructs.SaveApiKeysRequest{}) }},
+		{"saveAPIKeys", func() { a.saveAPIKeys(appstructs.SaveAPIKeysRequest{}) }},
 		{"refreshPinnedMods", a.refreshPinnedMods},
 		{"unpinMod", func() { a.unpinMod(storage.PinnedMod{}) }},
 		{"unpinAll", func() { a.unpinAll(nil) }},

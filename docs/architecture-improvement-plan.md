@@ -2,7 +2,7 @@
 
 > 分析日期：2026-10-25（修订版）
 > 基线提交：`6b15602`（主仓库 `main`；`core` 子模块以该提交记录的版本为准）
-> 范围：`mod-downloader-cli` 主仓库 + `core` 子模块（`mod-downloader-core`，被 CLI/TUI 与 Wails GUI 共用）
+> 范围：`mod-downloader-cli` 主仓库 + `core` 模块（位于 GUI 仓库，被 CLI/TUI 与 Wails GUI 共用）
 > 基线校验：`go build ./...`、`go vet ./...`、CLI 与 core 两个 module 的 `go test ./...` 全部通过；当前没有 CI。本文行数、方法数与日志统计均在该基线上实测，统计口径见第 7 节。
 >
 > 修订说明：本版修正了旧稿中与当前代码不符的数字和引用（`cliapp` 行数、Service 方法数、`Controller` 类型、core 包数等），并补齐了日志写入 mods 目录、`info` 命令同样依赖 `jarmeta.go`、事件契约包含适配器内部事件等遗漏。所有数字以基线上实测为准。
@@ -11,7 +11,7 @@
 
 ## 0. 结论
 
-分层方向是对的：`cmd → cliapp / tviewui → tuihost / uistate → appcore → core 领域包`，`appcore` 不依赖 Wails；TUI 的 UI 写入统一经 `uiUpdate`/`QueueUpdate` 回到 UI 线程，golden + goleak 测试也已成型。**不需要重写。**
+分层方向是对的：`cmd → cliapp / tviewui → core/host / uistate → appcore → core 领域包`，`appcore` 不依赖 Wails；TUI 的 UI 写入统一经 `uiUpdate`/`QueueUpdate` 回到 UI 线程，golden + goleak 测试也已成型。**不需要重写。**
 
 真正的问题不是“层数不够”，而是三类横向侵蚀：
 
@@ -33,7 +33,7 @@ cmd/mod-downloader-cli
   │                         ├─ 6 个页面 + 9 类弹窗 + 右侧队列 dock
   │                         ├─ internal/uistate   纯状态（minecraft/search/queue/manage/favorites）
   │                         ├─ internal/i18n      zh/en 字典
-  │                         └─ internal/tuihost   core service + HTTP bridge + event sink
+  │                         └─ core/host           core service + HTTP bridge + 类型化事件分发
   │                                │
   └─ 其他子命令 ─────────► cliapp             urfave/cli，15 个命令 + huh 交互向导
                                    │
@@ -57,7 +57,7 @@ cmd/mod-downloader-cli
 | CLI 适配 | 参数、配置优先级、表格/JSON 输出、交互向导 | `cliapp/` | 4,766 |
 | TUI 外壳 | 布局、焦点、弹窗、队列 dock、事件泵 | `internal/tviewui/` | 8,420 |
 | TUI 状态 | 与 Vue/Pinia 对齐的纯状态机 | `internal/uistate/` | 1,214 |
-| TUI Host | core 生命周期 + 事件翻译 | `internal/tuihost/host.go` | 269 |
+| 共享 Host | core 生命周期 + HTTP + 类型化事件分发（GUI/TUI 共用） | `core/host/host.go` | 269 |
 | 国际化 | key-based 中英文文案 | `internal/i18n/i18n.go` | 796 |
 | 应用编排 | 对外 facade、事件、工作流 | `core/appcore/` | 含在 core 16,760 |
 | 领域能力 | provider、下载、解析、存储、实例发现 | `core/{providers,downloader,minecraft,storage,modbridge,...}` | 含在 core 16,760 |
@@ -66,15 +66,15 @@ cmd/mod-downloader-cli
 
 ### 1.3 关键运行路径
 
-**TUI 事件路径**（`internal/tuihost/host.go` + `internal/tviewui/app.go`）：
+**TUI 事件路径**（`core/host/host.go` + `internal/tviewui/app.go`）：
 
 ```text
 core worker goroutine
   → appcore.Service.emit(appcore.Event{Kind, Payload any})
-  → tuihost.emitCoreEvent（翻译成 tuihost.Event{Kind, Payload any}）
-  → App.enqueueEvent（非阻塞缓冲）
-  → 事件泵 goroutine：compactEvents → QueueUpdate → App.handleEvent
-  → App.handleEvent 更新 uistate / 重建控件 → ForceDraw
+  → host.dispatch → host.On[T] handler（唯一一次类型断言）
+  → App.enqueueEvent（非阻塞缓冲，队列快照标记可合并）
+  → 事件泵 goroutine：compactEvents → QueueUpdate → 运行缓冲的 apply
+  → 更新 uistate / 重建控件 → ForceDraw
 ```
 
 事件泵、批量合并、`uiUpdate`、goleak 测试是这套架构里做得最扎实的部分（`app.go#L412-L541`）。
@@ -92,7 +92,7 @@ cliapp 或 TUI App 方法
 
 ### 1.4 与 GUI 的关系
 
-`core` 是独立 git submodule，主仓库通过 `replace github.com/link-fgfgui/mod-downloader-core => ./core` 引入。`appcore` 同时服务 Wails GUI、CLI 和 TUI，因此：
+`core` 已不再使用 git submodule（2026-11-01 起）：本仓库的 `core` 是指向 `../mod-downloader-gui-v3/core` 的符号链接，`go.mod` 通过 `replace github.com/link-fgfgui/mod-downloader/core => ./core` 引入，导入路径与 GUI 仓库一致。`appcore` 同时服务 Wails GUI、CLI 和 TUI，因此：
 
 - **可以**新增 core 方法、内部拆分实现；
 - **不要**直接修改既有导出方法签名或语义，除非同步 GUI 仓库；
@@ -428,12 +428,12 @@ core 已有 `minecraft.LoadLauncherVersions`（`launcher.go`）、`prism.go` 布
 
 1. 增加 `Makefile` 或 `Taskfile`：
    - `build`、`test-cli`、`test-core`、`test-all`、`test-race`、`vet`、`golden-update`、`clean-artifacts`。
-2. GitHub Actions：checkout submodules、Go 1.25（core 兼容 1.24）、`go vet ./...` + `go test ./...`（两个 module）、`go test -race ./...`、goleak。
+2. GitHub Actions：checkout sibling GUI 仓库（或恢复 `core` 符号链接）、Go 1.25（core 兼容 1.24）、`go vet ./...` + `go test ./...`（两个 module）、`go test -race ./...`、goleak。
 3. README：明确“CLI 需要 Go 1.25，core 需要 Go 1.24”；补充 TUI 日志路径、配置来源；链接本计划。
 4. 在 README 和本计划中记录基线 commit 与统计命令，避免后续数字漂移。
 5. `TODO.md` 已完成，可作为历史归档；后续用本计划的 P0/P1/P2 跟踪。
 
-**验收**：CI 从零 clone（含 submodule）可跑通；README 命令可复制执行；文档中的行数/包数可用第 7 节的命令复现。
+**验收**：CI 从零 clone（含 sibling GUI checkout）可跑通；README 命令可复制执行；文档中的行数/包数可用第 7 节的命令复现。
 
 **风险**：CI 首次接入会有环境差异；先只跑 build/vet/test，不同时上 lint。
 
