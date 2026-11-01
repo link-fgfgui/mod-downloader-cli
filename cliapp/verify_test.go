@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/link-fgfgui/mod-downloader/core/appcore"
 	"github.com/link-fgfgui/mod-downloader/core/minecraft"
 )
 
@@ -117,7 +118,7 @@ func TestVerifyCommandExitCode(t *testing.T) {
 	if err == nil {
 		t.Fatal("verify should exit non-zero on missing dependency")
 	}
-	var report verifyReport
+	var report appcore.VerifyReport
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("decode report: %v\n%s", err, out)
 	}

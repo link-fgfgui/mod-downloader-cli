@@ -1,9 +1,10 @@
 # mod-downloader-cli
 
-`mod-downloader-cli` is a command-line Minecraft mod downloader. It searches
-Modrinth and CurseForge metadata, shows compatible mod versions, installs mods
-into a `mods` directory, lists local mods, removes local mod files, and manages
-the metadata cache.
+`mod-downloader-cli` is a command-line Minecraft mod downloader. It resolves
+projects through Modrinth and CurseForge metadata (falling back to a keyword
+search when no exact slug or ID matches), shows compatible mod versions, installs
+mods into a `mods` directory, lists local mods, removes local mod files, and
+manages the metadata cache.
 
 Most service and domain logic lives in the shared `core` module. During the
 current migration stage this repository does not use a git submodule: `core` is a
@@ -112,10 +113,10 @@ Open an instance's `mods` directory:
 cd /path/to/.minecraft/versions/fabric-1.21.1/mods
 ```
 
-Search for a mod:
+Install a mod by exact slug/ID, or let a keyword query fall back to search:
 
 ```sh
-mod-downloader-cli search sodium
+mod-downloader-cli install sodium
 ```
 
 Show compatible versions for a project:
@@ -195,14 +196,14 @@ mod-downloader-cli remove sodium
 Global flags can be placed before the command:
 
 ```sh
-mod-downloader-cli --mc-version 1.21.1 --loader fabric search sodium
+mod-downloader-cli --mc-version 1.21.1 --loader fabric show modrinth:sodium
 ```
 
 | Flag | Environment variable | Description |
 | --- | --- | --- |
-| `--mc-version`, `--minecraft-version`, `--version` | `MINECRAFT_VERSION` | Minecraft version used for search, show, and install |
+| `--mc-version`, `--minecraft-version`, `--version` | `MINECRAFT_VERSION` | Minecraft version used for project lookup, show, and install |
 | `--loader` | `MOD_LOADER` | Mod loader: `fabric`, `forge`, or `neoforge` |
-| `--cache-dir` | `MOD_DOWNLOADER_CACHE_DIR` | Directory that stores `mods.gob.zst` metadata cache |
+| `--cache-dir` | `MOD_DOWNLOADER_CACHE_DIR` | Directory that stores `mod-metadata.tmp` metadata cache |
 | `--curseforge-api-key` | `CF_API_KEY` | Enables CurseForge provider access |
 | `--modrinth-api-key` | `MODRINTH_API_KEY` | Reserved Modrinth API key override |
 | `--dir`, `-C` | `MOD_DOWNLOADER_DIR` | Target mods directory, or its parent version / instance directory |
@@ -250,7 +251,7 @@ detection.
 If automatic detection is not possible, pass the settings explicitly:
 
 ```sh
-mod-downloader-cli --mc-version 1.21.1 --loader fabric search sodium
+mod-downloader-cli --mc-version 1.21.1 --loader fabric show modrinth:sodium
 ```
 
 ### Targeting Another Directory
@@ -269,28 +270,9 @@ the Minecraft version and loader from it.
 
 ## Commands
 
-### `search`
-
-Searches providers for mods compatible with the selected Minecraft version and
-loader.
-
-```sh
-mod-downloader-cli search [--platform modrinth|curseforge] [--limit 10] [--offset 0] <query>
-mod-downloader-cli search --slug <slug>
-mod-downloader-cli search --id <project-id>
-```
-
-You can also pass the query with `--query`. Query searches are regular text
-searches only; use `--slug` or `--id` when you want an exact project match.
-
-Human output columns:
-
-```text
-ID  SLUG  TITLE  PLATFORM
-```
-
-Use project references from the `ID` column, such as `modrinth:sodium`, with
-`show` and `install`.
+There is no separate `search` command. `install` is the single entry point: it
+looks up exact slugs and project IDs first and falls back to a keyword search
+when neither matches.
 
 ### `show`
 
@@ -316,6 +298,7 @@ messages are identical for both spellings.
 
 ```sh
 mod-downloader-cli install [flags] <project...>
+mod-downloader-cli install [flags] -r <requirements-file>
 mod-downloader-cli i       [flags] <project...>
 ```
 
@@ -335,6 +318,14 @@ installing into another current directory.
 | Slug | `sodium` | Exact lookup across every enabled platform (Modrinth + CurseForge) |
 | Project ID | `AANobbMI` (Modrinth) / `394468` (CurseForge) | ID-shape aware lookup, cross-platform |
 | Platform prefix | `modrinth:sodium`, `curseforge:394468` | Locks the lookup to that platform |
+| Keyword query | `mini map` | Falls back to a keyword search when no exact slug/ID matches |
+
+**Multiple projects.** With more than one argument, `install` splits the input
+on whitespace and resolves every token by exact slug/ID. If all tokens match,
+they are installed together like `pip install a b c`. If any token misses, the
+misses are printed and the successful token results are discarded; the whole
+input is then retried as one keyword search, so multi-word names such as
+`install mini map` still resolve.
 
 **Version and file identifiers are rejected.** `install` / `i` declares *which
 projects* to bring into the instance; the concrete version is derived from the
@@ -347,17 +338,31 @@ guidance instead of silently bypassing version resolution.
 > Modrinth project IDs and version IDs share that exact shape (e.g. `AANobbMI`).
 > Use the explicit `version-id:` prefix if you really mean a version.
 
+**Requirements files.** `install -r <file>` (or `--requirement <file>`)
+installs every entry in a requirements file produced by `freeze`. Blank lines
+and `#` comments are ignored. A line with an explicit version (`==1.2.3`)
+installs that version; otherwise the latest compatible version is installed.
+Entries already installed at a satisfying version are skipped. A failing entry
+does not stop the remaining entries; the command prints installed / skipped /
+failed counts and exits `1` if any entry failed. `-r` cannot be combined with
+project arguments, `--platform`, `--version-id`, `--dry-run`, or `--server`.
+
 **Resolution pipeline**
 
-1. Exact lookup on the prefixed platform, or concurrently across both platforms.
+1. Multi-argument input is split on whitespace; every token is looked up exactly
+   on its prefixed platform, or concurrently across both platforms.
 2. A single hit installs directly; multiple hits open a create-vite-style
    `Select` prompt (TTY only) unless `--platform` resolves the ambiguity, in
    which case the filter wins, and otherwise Modrinth is preferred with a
    stderr notice.
-3. No exact hit falls back to a keyword search; results are offered in a
-   filterable multi-select prompt. In non-interactive mode this is a hard error
-   (never a hang) telling you to pass an exact slug or prefixed ID.
-4. Downloads render a single live line with an overall progress bar, the current
+3. If any token has no exact hit, the misses are printed and the successful
+   token results are discarded; the whole input is retried as one keyword search
+   (top 10 by downloads), restricted to the prefixed platform or `--platform`
+   filter. One result auto-selects; multiple results open the filterable
+   multi-select prompt. In non-interactive mode this is a hard error (never a
+   hang) telling you to pass an exact slug or prefixed ID.
+4. A single argument follows the same exact lookup, then keyword fallback.
+5. Downloads render a single live line with an overall progress bar, the current
    file, `i/N`, and speed. Non-TTY output stays plain; `--json` stays silent.
 
 **Flags**
@@ -370,8 +375,10 @@ guidance instead of silently bypassing version resolution.
 | `--dry-run` | Print the resolved plan only; no network writes |
 | `--json` | Structured report (`targets`, `resolved`, …) |
 | `--version-id <id>` | Advanced: single-project explicit version |
+| `-r`, `--requirement <file>` | Install every mod listed in a requirements file |
 | `--timeout 2m` | Optional overall install timeout |
 | `--force` | Allow running outside a directory named `mods` |
+| `--server` | Start the local HTTP receiver on `127.0.0.1:18801` |
 
 Examples:
 
@@ -382,10 +389,40 @@ mod-downloader-cli i sodium --dry-run          # trailing flags are honoured
 mod-downloader-cli install --platform modrinth sodium lithium
 mod-downloader-cli i "mini map" --no-input     # fails fast, no hang
 mod-downloader-cli i curseforge:394468 modrinth:AANobbMI
+mod-downloader-cli install -r mods.txt         # pip-style requirements install
 ```
 
 When a compatible version has required dependencies, the downloader queues the
 missing required dependencies as well.
+
+**HTTP receiver (`--server`)**
+
+`install --server` starts the shared core HTTP receiver on
+`127.0.0.1:18801` — the same endpoint used by the browser extension — and blocks
+until `Ctrl+C`. It requires a valid mods directory, Minecraft version and loader,
+like a normal install. Received payloads are resolved with the install logic and
+queued immediately; the process must stay running while downloads complete.
+
+`POST /` with a JSON array of extension payloads:
+
+```json
+[
+  {"p": "mr", "id": null, "slug": "sodium", "file": ""},
+  {"p": "cf", "id": "394468", "slug": "", "file": "ver-123"}
+]
+```
+
+- `p`: `mr` (Modrinth) or `cf` (CurseForge).
+- `id`: optional project ID; takes precedence over `slug`.
+- `slug`: project slug used when `id` is empty.
+- `file`: optional explicit version ID.
+
+The response is a JSON array in the same order, where each entry is either
+`{"queued":true,"queueId":"…","fileName":"…","versionId":"…"}` or
+`{"skipped":true,"reason":"…"}`. `GET /health` returns `{"status":"ok"}`.
+
+`--server` cannot be combined with project arguments, `--dry-run`, or
+`--version-id`; per-mod version IDs belong in the payload's `file` field.
 
 ### `list` / `mods`
 
@@ -433,9 +470,9 @@ Deletes the metadata cache file.
 mod-downloader-cli cache clean
 ```
 
-If `--cache-dir` is set, the CLI removes `<cache-dir>/mods.gob.zst`. Otherwise
+If `--cache-dir` is set, the CLI removes `<cache-dir>/mod-metadata.tmp`. Otherwise
 it removes the default cache file under the system temp directory:
-`<temp>/mod-downloader/mods.gob.zst`.
+`<temp>/mod-downloader/mod-metadata.tmp`.
 
 ### `enable` / `disable`
 
@@ -514,30 +551,18 @@ Output includes base metadata, supported Minecraft version and loader,
 dependencies (depends / recommends / breaks), file path, size, SHA1 and SHA512
 hashes, and any online project association.
 
-### `export`
+### `freeze`
 
-Export installed mods to a portable requirements-style manifest.
+Print installed mods as a pip-style requirements list.
 
 ```sh
-mod-downloader-cli export [-o mods.txt]
+mod-downloader-cli freeze
+mod-downloader-cli freeze > mods.txt
 ```
 
 Each line is `platform:project[==version]`. Mods that cannot be matched to a
-platform are listed as `# local: <file>` comments. The output defaults to
-stdout; `-o` / `--output` writes it to a file.
-
-### `import`
-
-Install mods listed in a manifest file.
-
-```sh
-mod-downloader-cli import [--skip-existing] <file>
-```
-
-Blank lines and `#` comments are ignored. A line with an explicit version
-(`==1.2.3`) installs that version; otherwise the latest compatible version is
-installed. A failing entry does not stop the remaining entries; a summary of
-installed / skipped / failed counts is printed at the end.
+platform are listed as `# local: <file>` comments. Redirect the output to a file
+and feed it back with `install -r mods.txt` to recreate the mod set.
 
 ### `config`
 
@@ -585,7 +610,7 @@ Secret values are masked in `config get` / `config list` (for example
 Every command supports `--json`. For example:
 
 ```sh
-mod-downloader-cli --mc-version 1.21.1 --loader fabric search sodium --json
+mod-downloader-cli --mc-version 1.21.1 --loader fabric show modrinth:sodium --json
 ```
 
 JSON output is indented and uses the same data structures returned by the core

@@ -8,6 +8,7 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/modbridge"
 	"github.com/link-fgfgui/mod-downloader/core/models"
 	"github.com/link-fgfgui/mod-downloader/core/storage"
 	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
@@ -157,7 +158,7 @@ func TestDownloadInstallBatchAndStatuses(t *testing.T) {
 		t.Fatalf("batch keys=%#v", h.app.search.DownloadingKeys)
 	}
 
-	for _, status := range []string{"installed", "update", "conflict", "incompatible", "metadataLoading", "metadataFailed", "install", ""} {
+	for _, status := range []string{modbridge.BtnStatusInstalled, modbridge.BtnStatusUpdate, modbridge.BtnStatusConflict, modbridge.BtnStatusIncompatible, modbridge.BtnStatusMetadataLoading, modbridge.BtnStatusMetadataFailed, modbridge.BtnStatusNew, ""} {
 		glyph, label := downloadStateGlyph(h.app.theme, appview.ModDownloadButtonState{Status: status})
 		if glyph == "" {
 			t.Fatalf("status %q has no glyph", status)

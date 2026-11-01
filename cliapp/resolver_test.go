@@ -1,6 +1,8 @@
 package cliapp
 
 import (
+	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -143,6 +145,115 @@ func TestResolverFallsBackToSearchAndErrorsNonInteractive(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "non-interactive") || !strings.Contains(err.Error(), "curseforge:394468") {
 		t.Fatalf("guidance message missing: %v", err)
+	}
+}
+
+func TestResolveInstallTargetsMultiAllExact(t *testing.T) {
+	installSeams(t)
+	lookupProjectBySlugFn = func(_ *appcore.Service, platform, slug, _, _ string) (models.ModProject, bool) {
+		if platform != platformModrinth {
+			return models.ModProject{}, false
+		}
+		switch slug {
+		case "sodium":
+			return projectRef(platform, "AANobbMI", slug, "Sodium", 1), true
+		case "iris":
+			return projectRef(platform, "YL57xq9U", slug, "Iris", 1), true
+		}
+		return models.ModProject{}, false
+	}
+	lookupProjectByIDFn = func(*appcore.Service, string, string, string, string) (models.ModProject, bool) {
+		return models.ModProject{}, false
+	}
+	searchModsTextFn = func(*appcore.Service, appstructs.SearchModsRequest) appview.SearchModsUpdate {
+		t.Fatal("search must not run when every token matches exactly")
+		return appview.SearchModsUpdate{}
+	}
+
+	svc := appcore.New(appcore.Options{})
+	targets, err := ParseInstallTargets([]string{"sodium", "iris"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveInstallTargets(svc, targets, runtimeInput{MinecraftVersion: "1.21.1", ModLoader: "fabric"}, platformModrinth, false, true, io.Discard)
+	if err != nil {
+		t.Fatalf("resolve error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("resolved %d targets, want 2: %#v", len(got), got)
+	}
+	if got[0].Project.Slug != "sodium" || got[1].Project.Slug != "iris" {
+		t.Fatalf("unexpected resolution order: %#v", got)
+	}
+}
+
+func TestResolveInstallTargetsMultiFallsBackToWholeSearch(t *testing.T) {
+	installSeams(t)
+	lookupProjectBySlugFn = func(_ *appcore.Service, platform, slug, _, _ string) (models.ModProject, bool) {
+		if platform == platformModrinth && slug == "sodium" {
+			return projectRef(platform, "AANobbMI", slug, "Sodium", 1), true
+		}
+		return models.ModProject{}, false
+	}
+	lookupProjectByIDFn = func(*appcore.Service, string, string, string, string) (models.ModProject, bool) {
+		return models.ModProject{}, false
+	}
+	searched := ""
+	searchModsTextFn = func(_ *appcore.Service, req appstructs.SearchModsRequest) appview.SearchModsUpdate {
+		searched = req.Query
+		return appview.SearchModsUpdate{Results: []models.ModProject{
+			projectRef(platformModrinth, "minimap", "minimap", "MiniMap", 100),
+		}}
+	}
+
+	svc := appcore.New(appcore.Options{})
+	targets, err := ParseInstallTargets([]string{"sodium", "nonexistent"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	got, err := resolveInstallTargets(svc, targets, runtimeInput{MinecraftVersion: "1.21.1", ModLoader: "fabric"}, platformModrinth, false, true, &stderr)
+	if err != nil {
+		t.Fatalf("resolve error: %v", err)
+	}
+	if searched != "sodium nonexistent" {
+		t.Fatalf("whole-string search query = %q, want %q", searched, "sodium nonexistent")
+	}
+	if len(got) != 1 || got[0].Project.Slug != "minimap" {
+		t.Fatalf("successful token results must be discarded in favour of the whole search, got %#v", got)
+	}
+	if got[0].Target != "sodium nonexistent" {
+		t.Fatalf("target label = %q, want whole input", got[0].Target)
+	}
+	for _, want := range []string{"not found: nonexistent", `falling back to a single search for "sodium nonexistent"`} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr.String())
+		}
+	}
+}
+
+func TestResolverSearchFallbackHonoursPlatformFilter(t *testing.T) {
+	installSeams(t)
+	lookupProjectBySlugFn = func(*appcore.Service, string, string, string, string) (models.ModProject, bool) {
+		return models.ModProject{}, false
+	}
+	lookupProjectByIDFn = func(*appcore.Service, string, string, string, string) (models.ModProject, bool) {
+		return models.ModProject{}, false
+	}
+	searchModsTextFn = func(*appcore.Service, appstructs.SearchModsRequest) appview.SearchModsUpdate {
+		return appview.SearchModsUpdate{Results: []models.ModProject{
+			projectRef("modrinth", "1", "minimap", "MiniMap", 100),
+			projectRef("curseforge", "2", "mini-map", "Mini Map", 90),
+		}}
+	}
+	svc := appcore.New(appcore.Options{})
+	target, _ := ParseInstallTarget("mini map", "")
+	chosen, err := resolveInstallTarget(svc, target, runtimeInput{MinecraftVersion: "1.21.1", ModLoader: "fabric"}, "curseforge", false)
+	if err != nil {
+		t.Fatalf("resolve error: %v", err)
+	}
+	if len(chosen) != 1 || chosen[0].Platform != "curseforge" {
+		t.Fatalf("platform filter must constrain the search fallback, got %#v", chosen)
 	}
 }
 

@@ -13,13 +13,13 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/link-fgfgui/mod-downloader/core/appcore"
+	"github.com/link-fgfgui/mod-downloader/core/minecraft"
+	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
-const disabledSuffix = ".jar.disabled"
-
 func localModPathDisabled(path string) bool {
-	return strings.HasSuffix(strings.ToLower(path), disabledSuffix)
+	return minecraft.IsDisabledModName(path)
 }
 
 // modStateChange describes one enable/disable operation (or a friendly skip).
@@ -81,8 +81,31 @@ func (r runner) modStateCommand(name string, enable bool) *cli.Command {
 					return cli.Exit("no matching installed mods", 1)
 				}
 				if !c.Bool("dry-run") {
-					if err := applyModStateChanges(changes); err != nil {
-						return err
+					paths := make([]string, 0, len(changes))
+					for _, change := range changes {
+						if change.To != "" {
+							paths = append(paths, change.From)
+						}
+					}
+					if len(paths) > 0 {
+						action := appcore.LocalModBatchActionDisable
+						if enable {
+							action = appcore.LocalModBatchActionEnable
+						}
+						if _, err := svc.ApplyLocalModBatchOperation(appstructs.LocalModBatchOperationRequest{
+							Paths:            paths,
+							Action:           action,
+							TargetDir:        runtime.TargetModsDir,
+							MinecraftVersion: runtime.MinecraftVersion,
+							ModLoader:        runtime.ModLoader,
+						}); err != nil {
+							return err
+						}
+						for i := range changes {
+							if changes[i].To != "" {
+								changes[i].Executed = true
+							}
+						}
 					}
 				}
 				return r.write(c, changes, writeModStateChanges)
@@ -136,9 +159,9 @@ func planModStateChanges(modsDir string, mods []structs.ModInfo, targets []strin
 		case !enable && currentDisabled:
 			change.Note = "already disabled"
 		case enable:
-			change.To = strings.TrimSuffix(path, ".disabled")
+			change.To = minecraft.EnableModPath(path)
 		default:
-			change.To = path + ".disabled"
+			change.To = minecraft.DisableModPath(path)
 		}
 
 		if change.To != "" {
@@ -151,19 +174,6 @@ func planModStateChanges(modsDir string, mods []structs.ModInfo, targets []strin
 		changes = append(changes, change)
 	}
 	return changes, nil
-}
-
-func applyModStateChanges(changes []modStateChange) error {
-	for i := range changes {
-		if changes[i].To == "" {
-			continue
-		}
-		if err := os.Rename(changes[i].From, changes[i].To); err != nil {
-			return err
-		}
-		changes[i].Executed = true
-	}
-	return nil
 }
 
 func writeModStateChanges(w io.Writer, value any) error {

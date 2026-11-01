@@ -8,14 +8,13 @@ import (
 
 	"github.com/mattn/go-runewidth"
 	"github.com/rivo/tview"
+
+	"github.com/link-fgfgui/mod-downloader-cli/internal/formatutil"
 )
 
 // formatSpeed renders "x.xx MiB/s".
 func formatSpeed(bytesPerSecond int64) string {
-	if bytesPerSecond <= 0 {
-		return "0.00 MiB/s"
-	}
-	return fmt.Sprintf("%.2f MiB/s", float64(bytesPerSecond)/(1024*1024))
+	return formatutil.HumanSpeed(bytesPerSecond)
 }
 
 // formatPercent renders a whole-number percentage (empty when total is unknown).
@@ -120,37 +119,7 @@ func checkBoxTagged(selected bool) string { return tview.Escape(checkBox(selecte
 
 // truncate shortens a plain (untagged) string to width cells.
 func truncate(value string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if width <= 1 {
-		if tviewWidth(value) <= width {
-			return value
-		}
-		return ""
-	}
-	// Measure each rune once. Re-measuring the whole prefix after every rune
-	// made long descriptions cost O(n^2) uniseg work, which dominated refreshes
-	// of the result list.
-	used := 0
-	cutAt, over := -1, -1
-	for i, r := range value {
-		w := runewidth.RuneWidth(r)
-		if cutAt < 0 && used+w > width-1 {
-			cutAt = i
-		}
-		if over < 0 && used+w > width {
-			over = i
-		}
-		used += w
-	}
-	if over < 0 {
-		return value
-	}
-	if cutAt < 0 {
-		cutAt = over
-	}
-	return value[:cutAt] + "…"
+	return formatutil.Truncate(value, width)
 }
 
 // tviewWidth measures the display width of text.

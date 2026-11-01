@@ -6,14 +6,6 @@ import (
 	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
 
-// Preferred release types.
-const (
-	ReleaseTypeLatest  = "latest"
-	ReleaseTypeRelease = "release"
-	ReleaseTypeBeta    = "beta"
-	ReleaseTypeAlpha   = "alpha"
-)
-
 // SettingsDrafts mirrors the settings store's editable draft fields.
 type SettingsDrafts struct {
 	Theme                       string

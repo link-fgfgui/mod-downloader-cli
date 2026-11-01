@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -338,26 +337,11 @@ func (r runner) applyUpgradePlans(ctx context.Context, svc *appcore.Service, run
 			continue
 		}
 
-		newFile := firstNonEmptyString(result.Result.FileName, plan.NewFile)
-		newPath := filepath.Join(runtime.TargetModsDir, filepath.Base(newFile))
-
-		if plan.KeepDisabled && !localModPathDisabled(newPath) {
-			if err := renameToDisabled(newPath); err != nil {
-				plan.Note = err.Error()
-			}
-		}
-		// The downloader archives superseded jars as <file>.old during install;
+		// The downloader archives superseded jars as <file>.old during install
+		// and preserves the disabled suffix when the replaced jar was disabled;
 		// the CLI keeps those backups instead of deleting them.
 		plan.Executed = true
 	}
-}
-
-// renameToDisabled renames an enabled jar to its disabled form.
-func renameToDisabled(path string) error {
-	if localModPathDisabled(path) {
-		return nil
-	}
-	return os.Rename(path, path+".disabled")
 }
 
 func writeOutdated(w io.Writer, value any) error {

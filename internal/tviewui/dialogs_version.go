@@ -6,6 +6,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
+	"github.com/link-fgfgui/mod-downloader/core/minecraft"
 	"github.com/link-fgfgui/mod-downloader/core/models"
 	"github.com/link-fgfgui/mod-downloader/core/storage"
 
@@ -20,12 +21,13 @@ type versionDialog struct {
 	mcVersion string
 	modLoader string
 
-	versions      []models.ModVersion
-	pinnedVersion string
-	installedID   string
-	installedSHA1 string
-	loading       bool
-	busyVersionID string
+	versions         []models.ModVersion
+	pinnedVersion    string
+	installedID      string
+	installedSHA1    string
+	installedVersion string
+	loading          bool
+	busyVersionID    string
 
 	head *tview.TextView
 	list *wheelList
@@ -148,14 +150,23 @@ func (v *versionDialog) render() {
 			label = version.Version
 		}
 		installed := isInstalledVersion(version, v.installedID, v.installedSHA1)
+		risky := v.action == "replace" && v.installedVersion != "" &&
+			(minecraft.IsVersionDowngrade(version.Version, v.installedVersion) ||
+				minecraft.HasMajorVersionChange(version.Version, v.installedVersion))
 		main := marker + tview.Escape(truncate(label, 34))
 		if installed {
 			main = marker + t.tag(t.Success) + "✓ " + resetTag + tview.Escape(truncate(label, 32))
+		}
+		if risky {
+			main += " " + t.tag(t.Warning) + "⚠" + resetTag
 		}
 		if version.ID == v.busyVersionID {
 			main += " " + t.tag(t.Warning) + "…" + resetTag
 		}
 		detail := version.Version + " · " + version.ReleaseType
+		if risky {
+			detail += " · " + i18n.T("manage.version.risky")
+		}
 		if installed {
 			detail += " · " + i18n.T("manage.columns.state")
 		}

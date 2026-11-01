@@ -137,10 +137,10 @@ func TestCacheCleanTextOutput(t *testing.T) {
 	}
 }
 
-// TestShowAndSearchUnknownPlatform exercises the project resolution fallback and
-// the search/show writers without leaving the process: an unknown platform has
-// no provider, so every lookup misses.
-func TestShowAndSearchUnknownPlatform(t *testing.T) {
+// TestShowUnknownPlatform exercises the show project resolution fallback
+// without leaving the process: an unknown platform has no provider, so every
+// lookup misses.
+func TestShowUnknownPlatform(t *testing.T) {
 	isolateGlobalState(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("MINECRAFT_VERSION", "1.20.1")
@@ -164,24 +164,10 @@ func TestShowAndSearchUnknownPlatform(t *testing.T) {
 	if !strings.Contains(out, "unknown:other") {
 		t.Fatalf("show --project output = %q", out)
 	}
-
-	out, _, err = runCLI(t, "--cache-dir", cacheDir, "search", "--slug", "mystery", "--platform", "unknown")
-	if err != nil {
-		t.Fatalf("search slug: %v", err)
-	}
-	for _, want := range []string{"ID", "SLUG", "TITLE", "PLATFORM"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("search slug output missing %q:\n%s", want, out)
-		}
-	}
-
-	if _, _, err := runCLI(t, "--cache-dir", cacheDir, "search", "--id", "mystery", "--platform", "unknown"); err != nil {
-		t.Fatalf("search id: %v", err)
-	}
 }
 
-// TestExportJSONManifestWriter covers the structured export writer.
-func TestExportJSONManifestWriter(t *testing.T) {
+// TestFreezeJSONWriter covers the structured freeze writer.
+func TestFreezeJSONWriter(t *testing.T) {
 	isolateGlobalState(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	old := resolveProjectsByHashesFn
@@ -191,16 +177,16 @@ func TestExportJSONManifestWriter(t *testing.T) {
 	modsDir := filepath.Join(t.TempDir(), "mods")
 	writeModJar(t, modsDir, "custom-addon.jar", fabricJarEntries("custom", "1.0", "{}"))
 
-	out, _, err := runCLI(t, "--dir", modsDir, "export", "--json")
+	out, _, err := runCLI(t, "--dir", modsDir, "freeze", "--json")
 	if err != nil {
-		t.Fatalf("export --json: %v", err)
+		t.Fatalf("freeze --json: %v", err)
 	}
-	var entries []manifestEntry
+	var entries []requirement
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
-		t.Fatalf("export --json output: %v\n%s", err, out)
+		t.Fatalf("freeze --json output: %v\n%s", err, out)
 	}
 	if len(entries) != 1 || entries[0].LocalFile != "custom-addon.jar" {
-		t.Fatalf("export entries = %#v", entries)
+		t.Fatalf("freeze entries = %#v", entries)
 	}
 }
 

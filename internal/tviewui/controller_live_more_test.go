@@ -13,6 +13,7 @@ import (
 	"github.com/link-fgfgui/mod-downloader/core/models"
 	"github.com/link-fgfgui/mod-downloader/core/storage"
 	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -677,7 +678,7 @@ func TestLiveVersionDialogAndManageEnterRow(t *testing.T) {
 	missingPath := filepath.Join(t.TempDir(), "missing.jar")
 	l.doUI(func() {
 		page := l.app.managePage()
-		group := uistate.ModGroup{Primary: structs.ModInfo{
+		group := appview.LocalModGroup{Primary: structs.ModInfo{
 			ID: "missing", FileName: "missing.jar", Path: missingPath,
 		}}
 		page.rows = []uistate.ManageRow{{Kind: uistate.RowKindMod, Group: group}}

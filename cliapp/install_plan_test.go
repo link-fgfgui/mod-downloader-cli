@@ -63,18 +63,6 @@ func TestPreferredVersionWithinReportsFound(t *testing.T) {
 	}
 }
 
-func TestProgressBarText(t *testing.T) {
-	if got := progressBarText(50, 100, 10); got != "█████░░░░░" {
-		t.Fatalf("progressBarText = %q", got)
-	}
-	if got := progressBarText(1, 0, 10); !strings.Contains(got, "·") {
-		t.Fatalf("unknown-size bar should be dotted, got %q", got)
-	}
-	if got := humanSpeed(1024 * 1024); got != "1.00 MiB/s" {
-		t.Fatalf("humanSpeed = %q", got)
-	}
-}
-
 func TestInstallReportJSONShape(t *testing.T) {
 	plan := []InstallPlanEntry{
 		{Target: "sodium", Platform: "Modrinth", ProjectID: "AANobbMI", Title: "Sodium", Version: "0.6.0", ModIDs: []string{"sodium"}, FileSize: 1048576},

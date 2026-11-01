@@ -1,7 +1,9 @@
 package cliapp
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -75,6 +77,11 @@ func stdinIsTerminal() bool {
 	return isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
 }
 
+// errNoExactMatch marks a target that produced no exact slug/ID hit. The
+// multi-target install path uses it to distinguish "retry the whole input as
+// one search" from real resolution failures.
+var errNoExactMatch = errors.New("no exact match")
+
 // resolveInstallTarget implements the Phase-2 decision state machine for a
 // single target:
 //
@@ -82,6 +89,16 @@ func stdinIsTerminal() bool {
 //	multiple exact matches       -> interactive disambiguation (or auto-pick)
 //	no exact match               -> search fallback -> selector (or hard error)
 func resolveInstallTarget(svc *appcore.Service, target InstallTarget, runtime runtimeInput, platformFilter string, interactive bool) ([]models.ModProject, error) {
+	return resolveInstallTargetMode(svc, target, runtime, platformFilter, interactive, true)
+}
+
+// resolveExactInstallTarget is the multi-target mode: it only accepts exact
+// slug/ID matches and reports errNoExactMatch instead of searching.
+func resolveExactInstallTarget(svc *appcore.Service, target InstallTarget, runtime runtimeInput, platformFilter string, interactive bool) ([]models.ModProject, error) {
+	return resolveInstallTargetMode(svc, target, runtime, platformFilter, interactive, false)
+}
+
+func resolveInstallTargetMode(svc *appcore.Service, target InstallTarget, runtime runtimeInput, platformFilter string, interactive bool, allowSearch bool) ([]models.ModProject, error) {
 	platforms := lookupPlatforms
 	if target.Platform != "" {
 		platforms = []string{target.Platform}
@@ -111,8 +128,18 @@ func resolveInstallTarget(svc *appcore.Service, target InstallTarget, runtime ru
 		return chosen, nil
 	}
 
-	// No exact match: fall back to a keyword search.
-	results := searchTargets(svc, target, runtime)
+	if !allowSearch {
+		return nil, fmt.Errorf("%w: %q", errNoExactMatch, target.Raw)
+	}
+
+	// No exact match: fall back to a keyword search. An explicit platform prefix
+	// or --platform filter also constrains the fallback, matching the exact
+	// lookup above.
+	searchFilter := platformFilter
+	if target.Platform != "" {
+		searchFilter = target.Platform
+	}
+	results := searchTargets(svc, target, runtime, searchFilter)
 	if len(results) == 0 {
 		return nil, fmt.Errorf("no matching project found for %q", target.Raw)
 	}
@@ -129,6 +156,80 @@ func resolveInstallTarget(svc *appcore.Service, target InstallTarget, runtime ru
 		return nil, fmt.Errorf("selection canceled for %q", target.Raw)
 	}
 	return chosen, nil
+}
+
+// resolvedInstall pairs the user-supplied target with the project it resolved
+// to, so the install plan can keep the original label.
+type resolvedInstall struct {
+	Target  string
+	Project models.ModProject
+}
+
+// resolveInstallTargets resolves every parsed target. In multi-target mode all
+// tokens must match by exact slug/ID; if any token misses, the successful token
+// results are discarded, the misses are printed to stderr, and the whole raw
+// input is retried as one keyword search. This gives `install a b c` pip-style
+// multi-package semantics while still supporting multi-word mod names.
+func resolveInstallTargets(svc *appcore.Service, targets []InstallTarget, runtime runtimeInput, platformFilter string, interactive bool, multi bool, stderr io.Writer) ([]resolvedInstall, error) {
+	if !multi {
+		out := make([]resolvedInstall, 0, len(targets))
+		for _, target := range targets {
+			projects, err := resolveInstallTarget(svc, target, runtime, platformFilter, interactive)
+			if err != nil {
+				return nil, err
+			}
+			for _, project := range projects {
+				out = append(out, resolvedInstall{Target: target.Raw, Project: project})
+			}
+		}
+		return out, nil
+	}
+
+	out := make([]resolvedInstall, 0, len(targets))
+	missed := make([]string, 0)
+	for _, target := range targets {
+		projects, err := resolveExactInstallTarget(svc, target, runtime, platformFilter, interactive)
+		if err != nil {
+			if errors.Is(err, errNoExactMatch) {
+				missed = append(missed, target.Raw)
+				continue
+			}
+			return nil, err
+		}
+		for _, project := range projects {
+			out = append(out, resolvedInstall{Target: target.Raw, Project: project})
+		}
+	}
+	if len(missed) == 0 {
+		return out, nil
+	}
+
+	for _, raw := range missed {
+		_, _ = fmt.Fprintf(stderr, "not found: %s\n", raw)
+	}
+	whole := joinTargetRaws(targets)
+	wholeTarget, err := ParseInstallTarget(whole, "")
+	if err != nil {
+		return nil, err
+	}
+	_, _ = fmt.Fprintf(stderr, "falling back to a single search for %q\n", whole)
+	projects, err := resolveInstallTarget(svc, wholeTarget, runtime, platformFilter, interactive)
+	if err != nil {
+		return nil, err
+	}
+	out = out[:0]
+	for _, project := range projects {
+		out = append(out, resolvedInstall{Target: whole, Project: project})
+	}
+	return out, nil
+}
+
+func joinTargetRaws(targets []InstallTarget) string {
+	raws := make([]string, 0, len(targets))
+	for _, target := range targets {
+		raws = append(raws, target.Raw)
+	}
+	return strings.Join(raws, " ")
 }
 
 // lookupExactCandidates queries the given platforms concurrently and returns
@@ -180,8 +281,9 @@ func lookupOnPlatform(svc *appcore.Service, platform string, target InstallTarge
 	return models.ModProject{}
 }
 
-// searchTargets performs the keyword-search fallback.
-func searchTargets(svc *appcore.Service, target InstallTarget, runtime runtimeInput) []models.ModProject {
+// searchTargets performs the keyword-search fallback, restricted to
+// platformFilter when one is set.
+func searchTargets(svc *appcore.Service, target InstallTarget, runtime runtimeInput, platformFilter string) []models.ModProject {
 	update := searchModsTextFn(svc, appstructs.SearchModsRequest{
 		RequestID: "cli-search",
 		Query:     target.Query,
@@ -189,7 +291,7 @@ func searchTargets(svc *appcore.Service, target InstallTarget, runtime runtimeIn
 		ModLoader: runtime.ModLoader,
 		Limit:     10,
 	})
-	results := update.Results
+	results := filterProjectsByPlatform(update.Results, platformFilter)
 	if len(results) == 0 {
 		return nil
 	}

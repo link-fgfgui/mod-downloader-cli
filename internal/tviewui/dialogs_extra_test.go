@@ -13,9 +13,9 @@ import (
 	"github.com/link-fgfgui/mod-downloader/core/storage"
 	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
-	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
 )
 
 func dialogFlex(t *testing.T, h *testApp) *tview.Flex {
@@ -542,7 +542,7 @@ func TestDisableImpactDialogRenderingAndRestoreStates(t *testing.T) {
 			Candidates:   nil,
 		}},
 	}
-	h.app.managePage().pending = []uistate.ModGroup{{}}
+	h.app.managePage().pending = []appview.LocalModGroup{{}}
 	h.app.managePage().pendingAction = "disable"
 	h.app.openDisableImpactDialog(nil, "disable", result)
 	h.draw()

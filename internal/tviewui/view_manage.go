@@ -10,6 +10,7 @@ import (
 	"github.com/link-fgfgui/mod-downloader/core/appcore"
 	"github.com/link-fgfgui/mod-downloader/core/models"
 	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -33,11 +34,11 @@ type managePage struct {
 	expanded      bool
 	rebuilding    bool
 
-	groups   []uistate.ModGroup
+	groups   []appview.LocalModGroup
 	rows     []uistate.ManageRow
-	filtered []uistate.ModGroup
+	filtered []appview.LocalModGroup
 
-	pending       []uistate.ModGroup
+	pending       []appview.LocalModGroup
 	pendingAction string
 }
 
@@ -444,7 +445,7 @@ func (v *managePage) enterRow(index int) {
 		v.rebuildRows(true)
 		return
 	}
-	v.applyBatchTo([]uistate.ModGroup{row.Group}, uistate.PrimaryBatchAction([]uistate.ModGroup{row.Group}))
+	v.applyBatchTo([]appview.LocalModGroup{row.Group}, uistate.PrimaryBatchAction([]appview.LocalModGroup{row.Group}))
 }
 
 // toggleAt flips the checkbox of one row and repaints just that row.
@@ -523,8 +524,8 @@ func (v *managePage) selectAll() {
 	v.renderBar()
 }
 
-func (v *managePage) selectedGroups() []uistate.ModGroup {
-	groups := []uistate.ModGroup{}
+func (v *managePage) selectedGroups() []appview.LocalModGroup {
+	groups := []appview.LocalModGroup{}
 	for _, row := range v.rows {
 		if row.Selectable() && v.selected[row.RowKey()] {
 			groups = append(groups, row.Group)
@@ -547,7 +548,7 @@ func (v *managePage) applyBatch(action string) {
 	v.applyBatchTo(groups, action)
 }
 
-func (v *managePage) applyBatchTo(groups []uistate.ModGroup, action string) {
+func (v *managePage) applyBatchTo(groups []appview.LocalModGroup, action string) {
 	paths := uistate.SelectedGroupPaths(groups)
 	if len(paths) == 0 {
 		return
@@ -561,7 +562,7 @@ func (v *managePage) applyBatchTo(groups []uistate.ModGroup, action string) {
 	v.executeBatch(groups, action)
 }
 
-func (v *managePage) executeBatch(groups []uistate.ModGroup, action string) {
+func (v *managePage) executeBatch(groups []appview.LocalModGroup, action string) {
 	paths := uistate.SelectedGroupPaths(groups)
 	if len(paths) == 0 {
 		return
@@ -728,6 +729,7 @@ func (v *managePage) openVersionDialog() {
 	if p != nil {
 		p.installedID = group.Primary.OnlineVersionID
 		p.installedSHA1 = group.Primary.SHA1
+		p.installedVersion = group.Primary.Version
 	}
 }
 

@@ -261,7 +261,7 @@ func TestLoadSettingsDraftsFallbacks(t *testing.T) {
 			view:          appview.SettingsView{},
 			wantTheme:     "dark",
 			wantLanguage:  "system",
-			wantRelease:   ReleaseTypeLatest,
+			wantRelease:   "latest",
 			wantMultipler: configs.DefaultAnimationDurationMultiplier,
 		},
 		{
@@ -269,12 +269,12 @@ func TestLoadSettingsDraftsFallbacks(t *testing.T) {
 			view: appview.SettingsView{
 				Theme:                       "light",
 				Language:                    "zh-CN",
-				PreferredReleaseType:        ReleaseTypeBeta,
+				PreferredReleaseType:        "beta",
 				AnimationDurationMultiplier: 2.5,
 			},
 			wantTheme:     "light",
 			wantLanguage:  "zh",
-			wantRelease:   ReleaseTypeBeta,
+			wantRelease:   "beta",
 			wantMultipler: 2.5,
 		},
 		{
@@ -282,7 +282,7 @@ func TestLoadSettingsDraftsFallbacks(t *testing.T) {
 			view:          appview.SettingsView{AnimationDurationMultiplier: 0},
 			wantTheme:     "dark",
 			wantLanguage:  "system",
-			wantRelease:   ReleaseTypeLatest,
+			wantRelease:   "latest",
 			wantMultipler: configs.DefaultAnimationDurationMultiplier,
 		},
 	}
@@ -441,13 +441,13 @@ func TestManageRowKey(t *testing.T) {
 		t.Fatalf("toggle row key = %q", got)
 	}
 
-	group := ModGroup{Primary: structs.ModInfo{ID: "sodium", SHA1: "abc", Path: "/mods/sodium.jar", FileName: "sodium.jar"}}
+	group := appview.LocalModGroup{RowKey: "sodium|abc|/mods/sodium.jar|sodium.jar"}
 	row := ManageRow{Kind: RowKindMod, Group: group}
 	if got, want := row.RowKey(), "sodium|abc|/mods/sodium.jar|sodium.jar"; got != want {
 		t.Fatalf("row key = %q, want %q", got, want)
 	}
 
-	sparse := ManageRow{Kind: RowKindMod, Group: ModGroup{Primary: structs.ModInfo{FileName: "only.jar"}}}
+	sparse := ManageRow{Kind: RowKindMod, Group: appview.LocalModGroup{RowKey: "only.jar"}}
 	if got := sparse.RowKey(); got != "only.jar" {
 		t.Fatalf("empty fields must be skipped, got %q", got)
 	}
@@ -458,7 +458,7 @@ func TestManageRowKey(t *testing.T) {
 }
 
 func TestStrongIDsAndNames(t *testing.T) {
-	group := ModGroup{Strong: []structs.ModInfo{
+	group := appview.LocalModGroup{Strong: []structs.ModInfo{
 		{ID: "a", Name: "Alpha"},
 		{ID: "", Name: ""},
 		{ID: "b", Name: ""},
@@ -476,12 +476,12 @@ func TestStrongIDsAndNames(t *testing.T) {
 func TestHasGroupedDetails(t *testing.T) {
 	tests := []struct {
 		name  string
-		group ModGroup
+		group appview.LocalModGroup
 		want  bool
 	}{
-		{"single strong without jij", ModGroup{Strong: []structs.ModInfo{{ID: "a"}}}, false},
-		{"multiple strong", ModGroup{Strong: []structs.ModInfo{{ID: "a"}, {ID: "b"}}}, true},
-		{"single strong with jij", ModGroup{Strong: []structs.ModInfo{{ID: "a"}}, JIJ: []structs.JIJModInfo{{ID: "j"}}}, true},
+		{"single strong without jij", appview.LocalModGroup{Strong: []structs.ModInfo{{ID: "a"}}}, false},
+		{"multiple strong", appview.LocalModGroup{Strong: []structs.ModInfo{{ID: "a"}, {ID: "b"}}}, true},
+		{"single strong with jij", appview.LocalModGroup{Strong: []structs.ModInfo{{ID: "a"}}, JIJ: []structs.JIJModInfo{{ID: "j"}}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -495,15 +495,15 @@ func TestHasGroupedDetails(t *testing.T) {
 func TestCanReplaceVersion(t *testing.T) {
 	tests := []struct {
 		name        string
-		group       ModGroup
+		group       appview.LocalModGroup
 		hasInstance bool
 		want        bool
 	}{
-		{"no online metadata", ModGroup{}, true, false},
-		{"platform only", ModGroup{Primary: structs.ModInfo{OnlinePlatform: "Modrinth"}}, true, false},
-		{"project only", ModGroup{Primary: structs.ModInfo{OnlineProjectID: "sodium"}}, true, false},
-		{"no instance", ModGroup{Primary: structs.ModInfo{OnlinePlatform: "Modrinth", OnlineProjectID: "sodium"}}, false, false},
-		{"all conditions", ModGroup{Primary: structs.ModInfo{OnlinePlatform: "Modrinth", OnlineProjectID: "sodium"}}, true, true},
+		{"no online metadata", appview.LocalModGroup{}, true, false},
+		{"platform only", appview.LocalModGroup{CanReplaceVersion: false}, true, false},
+		{"project only", appview.LocalModGroup{CanReplaceVersion: false}, true, false},
+		{"no instance", appview.LocalModGroup{CanReplaceVersion: true}, false, false},
+		{"all conditions", appview.LocalModGroup{CanReplaceVersion: true}, true, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -515,13 +515,13 @@ func TestCanReplaceVersion(t *testing.T) {
 }
 
 func TestCanFavoriteGroupAndSelection(t *testing.T) {
-	valid := ModGroup{Primary: structs.ModInfo{OnlinePlatform: "Modrinth", OnlineProjectID: "sodium"}}
-	valid2 := ModGroup{Primary: structs.ModInfo{OnlinePlatform: "CurseForge", OnlineProjectID: "123"}}
-	missingOnline := ModGroup{Primary: structs.ModInfo{}}
+	valid := appview.LocalModGroup{Primary: structs.ModInfo{OnlinePlatform: "Modrinth", OnlineProjectID: "sodium"}}
+	valid2 := appview.LocalModGroup{Primary: structs.ModInfo{OnlinePlatform: "CurseForge", OnlineProjectID: "123"}}
+	missingOnline := appview.LocalModGroup{Primary: structs.ModInfo{}}
 
 	groupTests := []struct {
 		name    string
-		group   ModGroup
+		group   appview.LocalModGroup
 		version string
 		loader  string
 		want    bool
@@ -541,12 +541,12 @@ func TestCanFavoriteGroupAndSelection(t *testing.T) {
 
 	selectionTests := []struct {
 		name   string
-		groups []ModGroup
+		groups []appview.LocalModGroup
 		want   bool
 	}{
 		{"empty selection", nil, false},
-		{"all valid", []ModGroup{valid, valid2}, true},
-		{"one invalid", []ModGroup{valid, missingOnline}, false},
+		{"all valid", []appview.LocalModGroup{valid, valid2}, true},
+		{"one invalid", []appview.LocalModGroup{valid, missingOnline}, false},
 	}
 	for _, tt := range selectionTests {
 		t.Run("selection/"+tt.name, func(t *testing.T) {
@@ -585,46 +585,6 @@ func TestOnlineProjectFromGroup(t *testing.T) {
 	}
 	if len(got.Categories) != 2 || got.Categories[0] != "optimization" || got.Categories[1] != "utility" {
 		t.Fatalf("categories = %#v, want [optimization utility]", got.Categories)
-	}
-}
-
-func TestCleanupCandidatesFromDelete(t *testing.T) {
-	if got := CleanupCandidatesFromDelete(nil, []string{"/mods/a.jar"}); got != nil {
-		t.Fatalf("empty candidates must return nil, got %#v", got)
-	}
-
-	candidates := []UnusedCandidate{
-		{Path: "/mods/./a.jar", FileName: "a.jar"},
-		{Path: "/mods//b.jar", FileName: "b.jar"},
-		{Path: "/mods/c.jar", FileName: "c.jar"},
-	}
-	got := CleanupCandidatesFromDelete(candidates, []string{"/mods/a.jar", "/mods/b.jar"})
-	if len(got) != 1 || got[0].FileName != "c.jar" {
-		t.Fatalf("cleaned candidates = %#v, want only c.jar", got)
-	}
-	if all := CleanupCandidatesFromDelete(candidates, nil); len(all) != 3 {
-		t.Fatalf("no deleted paths must keep every candidate, got %d", len(all))
-	}
-}
-
-func TestCleanupEvidenceKey(t *testing.T) {
-	tests := []struct {
-		name     string
-		evidence []string
-		want     string
-	}{
-		{"online only", []string{"online-library"}, "online"},
-		{"required only", []string{"required-by-excluded"}, "deleted"},
-		{"both", []string{"online-library", "required-by-excluded"}, "onlineAndDeleted"},
-		{"empty", nil, "online"},
-		{"unknown", []string{"other"}, "online"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := CleanupEvidenceKey(tt.evidence); got != tt.want {
-				t.Fatalf("CleanupEvidenceKey(%v) = %q, want %q", tt.evidence, got, tt.want)
-			}
-		})
 	}
 }
 

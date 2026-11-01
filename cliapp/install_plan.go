@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"os"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -177,55 +175,6 @@ func writerIsTerminal(w io.Writer) bool {
 	}
 	fd := f.Fd()
 	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
-}
-
-// renderInstallProgress draws a single-line progress bar (overwritten in place).
-func (r runner) renderInstallProgress(svc *appcore.Service) {
-	state := svc.GetDownloadQueueState()
-	bar := progressBarText(state.BytesComplete, state.TotalBytes, 24)
-	percent := "  ?%"
-	if state.TotalBytes > 0 {
-		pct := float64(state.BytesComplete) / float64(state.TotalBytes) * 100
-		if pct > 100 {
-			pct = 100
-		}
-		percent = fmt.Sprintf("%3.0f%%", pct)
-	}
-	speed := humanSpeed(state.BytesPerSecond)
-	pending := state.Running + state.Pending
-	_, _ = fmt.Fprintf(r.stdout, "\r\x1b[K[%s] %s  %s  ·  %d 任务进行中", bar, percent, speed, pending)
-}
-
-func (r runner) clearInstallProgress() {
-	_, _ = fmt.Fprint(r.stdout, "\r\x1b[K")
-}
-
-// progressBarText renders a fixed-width textual bar ("unknown size" -> dotted).
-func progressBarText(complete, total int64, width int) string {
-	if width < 4 {
-		width = 4
-	}
-	if total <= 0 {
-		filled := width / 2
-		return strings.Repeat("·", filled) + strings.Repeat(" ", width-filled)
-	}
-	ratio := float64(complete) / float64(total)
-	if ratio < 0 {
-		ratio = 0
-	}
-	if ratio > 1 {
-		ratio = 1
-	}
-	filled := int(math.Round(ratio * float64(width)))
-	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-}
-
-// humanSpeed renders bytes/second as MiB/s.
-func humanSpeed(bytesPerSecond int64) string {
-	if bytesPerSecond <= 0 {
-		return "0.00 MiB/s"
-	}
-	return fmt.Sprintf("%.2f MiB/s", float64(bytesPerSecond)/(1024*1024))
 }
 
 func modIDColumn(entry InstallPlanEntry) string {

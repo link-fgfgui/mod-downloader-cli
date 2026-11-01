@@ -55,17 +55,6 @@ type showView struct {
 	Versions []models.ModVersion `json:"versions"`
 }
 
-type searchTarget struct {
-	Query string
-	Mode  string
-}
-
-const (
-	searchModeText = "search"
-	searchModeSlug = "slug"
-	searchModeID   = "id"
-)
-
 func New(stdout, stderr io.Writer) *cli.App {
 	r := runner{stdout: stdout, stderr: stderr}
 	app := &cli.App{
@@ -85,10 +74,10 @@ func New(stdout, stderr io.Writer) *cli.App {
 			&cli.StringFlag{Name: "dir", Aliases: []string{"C"}, Usage: "target mods directory, or its parent Minecraft instance / version directory", EnvVars: []string{"MOD_DOWNLOADER_DIR"}},
 		},
 		Commands: []*cli.Command{
-			r.searchCommand(),
 			r.showCommand(),
 			r.installCommand(),
 			r.listCommand(),
+			r.freezeCommand(),
 			r.removeCommand(),
 			r.enableCommand(),
 			r.disableCommand(),
@@ -96,8 +85,6 @@ func New(stdout, stderr io.Writer) *cli.App {
 			r.upgradeCommand(),
 			r.verifyCommand(),
 			r.infoCommand(),
-			r.exportCommand(),
-			r.importCommand(),
 			r.configCommand(),
 			r.cacheCommand(),
 		},
@@ -119,106 +106,6 @@ func cliLogLevel(c *cli.Context) slog.Level {
 		return slog.LevelDebug
 	}
 	return slog.LevelWarn
-}
-
-func (r runner) searchCommand() *cli.Command {
-	return &cli.Command{
-		Name:      "search",
-		Usage:     "Search Modrinth and configured CurseForge metadata",
-		ArgsUsage: "[<query>]",
-		Flags: []cli.Flag{
-			jsonFlag(),
-			&cli.StringFlag{Name: "query", Usage: "search query; defaults to the first positional argument"},
-			&cli.StringFlag{Name: "slug", Usage: "match an exact project slug"},
-			&cli.StringFlag{Name: "id", Usage: "match an exact project ID"},
-			&cli.StringFlag{Name: "platform", Usage: "provider filter: modrinth or curseforge"},
-			&cli.IntFlag{Name: "limit", Value: 10, Usage: "maximum result count per provider"},
-			&cli.IntFlag{Name: "offset", Usage: "result offset"},
-		},
-		Action: func(c *cli.Context) error {
-			target, err := searchTargetFromContext(c)
-			if err != nil {
-				return err
-			}
-			runtime, err := r.runtimeInput(c, false)
-			if err != nil {
-				return err
-			}
-			if err := requireVersionLoader(runtime); err != nil {
-				return err
-			}
-			return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
-				projects := searchProjects(c, svc, runtime, target)
-				return r.write(c, projects, writeProjects)
-			})
-		},
-	}
-}
-
-func searchTargetFromContext(c *cli.Context) (searchTarget, error) {
-	type candidate struct {
-		name  string
-		query string
-		mode  string
-	}
-	candidates := make([]candidate, 0, 4)
-	if query := strings.TrimSpace(c.String("query")); query != "" {
-		candidates = append(candidates, candidate{name: "--query", query: query, mode: searchModeText})
-	}
-	if arg := strings.TrimSpace(c.Args().First()); arg != "" {
-		candidates = append(candidates, candidate{name: "<query>", query: arg, mode: searchModeText})
-	}
-	if slug := strings.TrimSpace(c.String("slug")); slug != "" {
-		candidates = append(candidates, candidate{name: "--slug", query: slug, mode: searchModeSlug})
-	}
-	if id := strings.TrimSpace(c.String("id")); id != "" {
-		candidates = append(candidates, candidate{name: "--id", query: id, mode: searchModeID})
-	}
-	if len(candidates) == 0 {
-		return searchTarget{}, errors.New("query, --slug, or --id is required")
-	}
-	if len(candidates) > 1 {
-		names := make([]string, 0, len(candidates))
-		for _, candidate := range candidates {
-			names = append(names, candidate.name)
-		}
-		return searchTarget{}, fmt.Errorf("pass only one search target: %s", strings.Join(names, ", "))
-	}
-	return searchTarget{Query: candidates[0].query, Mode: candidates[0].mode}, nil
-}
-
-func searchProjects(c *cli.Context, svc *appcore.Service, runtime runtimeInput, target searchTarget) []models.ModProject {
-	if target.Mode == searchModeText {
-		update := svc.SearchModsTextCollect(appstructs.SearchModsRequest{
-			Query:     target.Query,
-			Version:   runtime.MinecraftVersion,
-			ModLoader: runtime.ModLoader,
-			Limit:     c.Int("limit"),
-			Offset:    c.Int("offset"),
-		})
-		return filterProjectsByPlatform(update.Results, c.String("platform"))
-	}
-
-	platforms := []string{strings.ToLower(strings.TrimSpace(c.String("platform")))}
-	if platforms[0] == "" {
-		platforms = []string{"modrinth", "curseforge"}
-	}
-
-	projects := make([]models.ModProject, 0, len(platforms))
-	for _, platform := range platforms {
-		var project models.ModProject
-		var ok bool
-		switch target.Mode {
-		case searchModeSlug:
-			project, ok = svc.LookupProjectBySlug(platform, target.Query, runtime.MinecraftVersion, runtime.ModLoader)
-		case searchModeID:
-			project, ok = svc.LookupProjectByID(platform, target.Query, runtime.MinecraftVersion, runtime.ModLoader)
-		}
-		if ok {
-			projects = append(projects, project)
-		}
-	}
-	return projects
 }
 
 func (r runner) showCommand() *cli.Command {
@@ -258,18 +145,20 @@ func (r runner) installCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "install",
 		Aliases:   []string{"i"},
-		Usage:     "Install projects into the current mods directory",
+		Usage:     "Install projects into the current mods directory; falls back to keyword search when no exact slug or ID matches",
 		ArgsUsage: "<project...>",
 		Flags: []cli.Flag{
 			jsonFlag(),
 			&cli.StringFlag{Name: "project", Usage: "project ID, slug, or platform-prefixed reference"},
 			&cli.StringFlag{Name: "platform", Usage: "project platform: modrinth or curseforge"},
 			&cli.StringFlag{Name: "version-id", Usage: "advanced: explicit platform version ID for a single project (prefer automatic derivation)"},
+			&cli.StringFlag{Name: "requirement", Aliases: []string{"r"}, Usage: "install mods listed in a requirements file, like pip install -r"},
 			&cli.BoolFlag{Name: "force", Usage: "allow running outside a directory named mods"},
 			&cli.BoolFlag{Name: "yes", Aliases: []string{"y"}, Usage: "non-interactive: accept automatic choices without prompting"},
 			&cli.BoolFlag{Name: "no-input", Usage: "non-interactive: never open the interactive selector"},
 			&cli.BoolFlag{Name: "dry-run", Usage: "print the resolved install plan without downloading or writing files"},
 			&cli.DurationFlag{Name: "timeout", Usage: "optional install timeout, for example 2m"},
+			&cli.BoolFlag{Name: "server", Usage: "start the local HTTP receiver on 127.0.0.1:18801 and queue received mods for install"},
 		},
 		Action: func(c *cli.Context) error {
 			runtime, err := r.runtimeInput(c, true)
@@ -284,11 +173,43 @@ func (r runner) installCommand() *cli.Command {
 			}
 			refs := projectRefs(c)
 			platformFilter := normalizePlatformName(c.String("platform"))
+			if requirement := strings.TrimSpace(c.String("requirement")); requirement != "" {
+				if err := requirementInstallConflict(c, refs, platformFilter); err != nil {
+					return err
+				}
+				return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
+					if timeout := c.Duration("timeout"); timeout > 0 {
+						var cancel context.CancelFunc
+						ctx, cancel = context.WithTimeout(ctx, timeout)
+						defer cancel()
+					}
+					return r.installRequirements(ctx, c, svc, runtime, requirement)
+				})
+			}
+			if c.Bool("server") {
+				if len(refs) > 0 {
+					return errors.New("--server cannot be combined with project arguments")
+				}
+				if c.Bool("dry-run") {
+					return errors.New("--server cannot be combined with --dry-run")
+				}
+				if strings.TrimSpace(c.String("version-id")) != "" {
+					return errors.New("--server cannot be combined with --version-id; use the payload's file field instead")
+				}
+				return r.withService(c, runtime, func(ctx context.Context, svc *appcore.Service) error {
+					return r.serveInstall(ctx, svc, runtime)
+				})
+			}
 			wizardMode := len(refs) == 0 && interactiveAllowed(c) && !c.Bool("json") && !c.Bool("dry-run")
+			multiTarget := false
 			targets := []InstallTarget{}
 			if !wizardMode {
-				var err error
-				targets, err = ParseInstallTargets(refs, "")
+				installRefs := refs
+				if len(refs) > 1 {
+					installRefs = splitInstallRefs(refs)
+				}
+				multiTarget = len(installRefs) > 1
+				targets, err = ParseInstallTargets(installRefs, "")
 				if err != nil {
 					return err
 				}
@@ -314,16 +235,16 @@ func (r runner) installCommand() *cli.Command {
 					targets = wizardTargets
 				}
 
-				// Phase 2: resolve every target to exactly one project.
-				plan := make([]InstallPlanEntry, 0, len(targets))
-				for _, target := range targets {
-					projects, err := resolveInstallTarget(svc, target, runtime, platformFilter, interactive)
-					if err != nil {
-						return err
-					}
-					for _, project := range projects {
-						plan = append(plan, buildInstallPlanEntry(svc, target.Raw, project, runtime))
-					}
+				// Phase 2: resolve every target to exactly one project. Multi-arg
+				// installs are all-or-nothing: if any token misses, the whole
+				// input is retried as one keyword search.
+				resolved, err := resolveInstallTargets(svc, targets, runtime, platformFilter, interactive, multiTarget, r.stderr)
+				if err != nil {
+					return err
+				}
+				plan := make([]InstallPlanEntry, 0, len(resolved))
+				for _, item := range resolved {
+					plan = append(plan, buildInstallPlanEntry(svc, item.Target, item.Project, runtime))
 				}
 
 				// Phase 5.1: preview the resolved plan (skipped in JSON mode where
@@ -450,12 +371,28 @@ func (r runner) removeCommand() *cli.Command {
 				if err != nil {
 					return err
 				}
-				removed, err := removeMatchingMods(runtime.TargetModsDir, mods, targets, c.Bool("dry-run"))
-				if err != nil {
-					return err
-				}
+				removed := planRemovedMods(runtime.TargetModsDir, mods, targets)
 				if len(removed) == 0 {
 					return cli.Exit("no matching installed mods", 1)
+				}
+				dryRun := c.Bool("dry-run")
+				if !dryRun {
+					paths := make([]string, 0, len(removed))
+					for _, mod := range removed {
+						paths = append(paths, mod.Path)
+					}
+					if _, err := svc.ApplyLocalModBatchOperation(appstructs.LocalModBatchOperationRequest{
+						Paths:            paths,
+						Action:           appcore.LocalModBatchActionDelete,
+						TargetDir:        runtime.TargetModsDir,
+						MinecraftVersion: runtime.MinecraftVersion,
+						ModLoader:        runtime.ModLoader,
+					}); err != nil {
+						return err
+					}
+				}
+				for i := range removed {
+					removed[i].DryRun = dryRun
 				}
 				return r.write(c, removed, writeRemovedMods)
 			})
@@ -865,6 +802,17 @@ func projectRefs(c *cli.Context) []string {
 	return refs
 }
 
+// splitInstallRefs expands multi-argument installs into whitespace tokens so
+// `install a b c` behaves like pip install, while a single quoted argument such
+// as `install "mini map"` stays one search query.
+func splitInstallRefs(refs []string) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, strings.Fields(ref)...)
+	}
+	return out
+}
+
 func normalizedArgs(args []string) []string {
 	out := make([]string, 0, len(args))
 	for _, arg := range args {
@@ -937,7 +885,11 @@ func cacheFilePath(c *cli.Context) (string, error) {
 	return storage.DefaultCachePath()
 }
 
-func removeMatchingMods(modsDir string, mods []structs.ModInfo, targets []string, dryRun bool) ([]removedMod, error) {
+// planRemovedMods resolves the target selectors to physical jar paths. The
+// actual deletion is delegated to appcore.ApplyLocalModBatchOperation so the
+// CLI gets the same path validation, index cleanup and usage stats as the GUI
+// and TUI.
+func planRemovedMods(modsDir string, mods []structs.ModInfo, targets []string) []removedMod {
 	targetSet := make(map[string]bool, len(targets))
 	for _, target := range targets {
 		targetSet[normalizeModRef(target)] = true
@@ -961,20 +913,14 @@ func removeMatchingMods(modsDir string, mods []structs.ModInfo, targets []string
 			continue
 		}
 		seen[path] = true
-		if !dryRun {
-			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-				return nil, err
-			}
-		}
 		removed = append(removed, removedMod{
 			ID:       mod.ID,
 			Name:     mod.Name,
 			FileName: mod.FileName,
 			Path:     path,
-			DryRun:   dryRun,
 		})
 	}
-	return removed, nil
+	return removed
 }
 
 func matchesAnyModTarget(mod structs.ModInfo, targets map[string]bool) bool {
@@ -994,19 +940,9 @@ func matchesAnyModTarget(mod structs.ModInfo, targets map[string]bool) bool {
 
 func normalizeModRef(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
-	value = strings.TrimSuffix(value, ".disabled")
+	value = strings.ToLower(minecraft.EnableModPath(value))
 	value = strings.TrimSuffix(value, ".jar")
 	return value
-}
-
-func writeProjects(w io.Writer, value any) error {
-	projects := value.([]models.ModProject)
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSLUG\tTITLE\tPLATFORM")
-	for _, project := range projects {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", project.ID, project.Slug, project.Title, project.Platform)
-	}
-	return tw.Flush()
 }
 
 func writeShow(w io.Writer, value any) error {

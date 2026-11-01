@@ -6,6 +6,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
+	"github.com/link-fgfgui/mod-downloader/core/modbridge"
 	"github.com/link-fgfgui/mod-downloader/core/models"
 	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
@@ -453,19 +454,19 @@ func (v *downloadPage) stateFor(key string) appview.ModDownloadButtonState {
 
 func downloadStateGlyph(t Theme, state appview.ModDownloadButtonState) (string, string) {
 	switch state.Status {
-	case "installed":
+	case modbridge.BtnStatusInstalled:
 		return t.tag(t.Success) + "✓" + resetTag, t.tag(t.Success) + uiText("stateInstalled") + resetTag
-	case "update":
+	case modbridge.BtnStatusUpdate:
 		return t.tag(t.Warning) + "↑" + resetTag, t.tag(t.Warning) + uiText("stateUpdate") + resetTag
-	case "conflict":
+	case modbridge.BtnStatusConflict:
 		return t.tag(t.Error) + "⚠" + resetTag, t.tag(t.Error) + uiText("stateConflict") + resetTag
-	case "incompatible":
+	case modbridge.BtnStatusIncompatible:
 		return t.tag(t.Error) + "✗" + resetTag, t.tag(t.Error) + uiText("stateIncompatible") + resetTag
-	case "metadataLoading":
+	case modbridge.BtnStatusMetadataLoading:
 		return t.tag(t.Muted) + "…" + resetTag, t.tag(t.Muted) + uiText("loading") + resetTag
-	case "metadataFailed":
+	case modbridge.BtnStatusMetadataFailed:
 		return t.tag(t.Error) + "!" + resetTag, t.tag(t.Error) + uiText("failed") + resetTag
-	case "install":
+	case modbridge.BtnStatusNew:
 		return t.tag(t.Secondary) + "↓" + resetTag, t.tag(t.Secondary) + uiText("stateInstall") + resetTag
 	default:
 		return t.tag(t.Muted) + "•" + resetTag, ""
@@ -752,10 +753,10 @@ func (v *downloadPage) confirmInstall(result models.ModProject, key, status, con
 	titleKey := "download.confirmReplace.updateTitle"
 	bodyKey := "download.confirmReplace.updateBody"
 	switch status {
-	case "conflict":
+	case modbridge.BtnStatusConflict:
 		titleKey = "download.confirmReplace.conflictTitle"
 		bodyKey = "download.confirmReplace.conflictBody"
-	case "incompatible":
+	case modbridge.BtnStatusIncompatible:
 		titleKey = "download.confirmReplace.incompatibleTitle"
 		bodyKey = "download.confirmReplace.incompatibleBody"
 	}

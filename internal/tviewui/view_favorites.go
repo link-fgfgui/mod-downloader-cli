@@ -9,6 +9,7 @@ import (
 	"github.com/link-fgfgui/mod-downloader/core/appcore"
 	"github.com/link-fgfgui/mod-downloader/core/models"
 	"github.com/link-fgfgui/mod-downloader/core/storage"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -42,7 +43,7 @@ func favoriteDraftFromProject(project models.ModProject, app *App) favoriteDraft
 	}
 }
 
-func favoriteDraftFromGroup(group uistate.ModGroup, app *App) favoriteDraft {
+func favoriteDraftFromGroup(group appview.LocalModGroup, app *App) favoriteDraft {
 	primary := group.Primary
 	mcVersion := primary.Version
 	if app.mc.SelectedMinecraftVersion != "" {

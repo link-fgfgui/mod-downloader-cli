@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -72,19 +73,19 @@ func TestTrailingBoolFalseAndJSON(t *testing.T) {
 func TestTrailingStringFlagValue(t *testing.T) {
 	isolateGlobalState(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("MINECRAFT_VERSION", "")
-	t.Setenv("MOD_LOADER", "")
+	t.Setenv("MINECRAFT_VERSION", "1.21.1")
+	t.Setenv("MOD_LOADER", "fabric")
 
 	modsDir := filepath.Join(t.TempDir(), "mods")
 	writeModJar(t, modsDir, "iris.jar", fabricJarEntries("iris", "1.7.0", ""))
 	chdir(t, modsDir)
 
-	output := filepath.Join(t.TempDir(), "mods.txt")
-	if _, _, err := runCLI(t, "--cache-dir", t.TempDir(), "export", "-o", output); err != nil {
-		t.Fatalf("export failed: %v", err)
+	out, _, err := runCLI(t, "--cache-dir", t.TempDir(), "show", "mystery", "--platform", "unknown")
+	if err != nil {
+		t.Fatalf("show with trailing --platform failed: %v", err)
 	}
-	if _, err := os.Stat(output); err != nil {
-		t.Fatalf("export -o ignored: %v", err)
+	if !strings.Contains(out, "unknown:mystery") {
+		t.Fatalf("trailing --platform value was ignored:\n%s", out)
 	}
 }
 

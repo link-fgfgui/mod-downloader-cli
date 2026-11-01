@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/link-fgfgui/mod-downloader/core/modbridge"
 	"github.com/link-fgfgui/mod-downloader/core/models"
 	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
@@ -19,9 +20,16 @@ const SearchPageSize = 10
 // search statuses mirrored from the download search store getters.
 var (
 	// ConfirmStatuses require a confirmation dialog before queueing.
-	ConfirmStatuses = map[string]bool{"update": true, "conflict": true, "incompatible": true}
+	ConfirmStatuses = map[string]bool{
+		modbridge.BtnStatusUpdate:       true,
+		modbridge.BtnStatusConflict:     true,
+		modbridge.BtnStatusIncompatible: true,
+	}
 	// MetadataRetryStatuses trigger a metadata refresh instead of queueing.
-	MetadataRetryStatuses = map[string]bool{"metadataLoading": true, "metadataFailed": true}
+	MetadataRetryStatuses = map[string]bool{
+		modbridge.BtnStatusMetadataLoading: true,
+		modbridge.BtnStatusMetadataFailed:  true,
+	}
 )
 
 // downloadErrorKeys maps core skip reasons to i18n keys, mirroring the frontend map.
@@ -245,10 +253,10 @@ func (s *SearchState) EndDownloading(key string) {
 // DisabledDownloadStates mirrors disabledDownloadStates(reason).
 func (s *SearchState) DisabledDownloadStates(reason string) []appview.ModDownloadButtonState {
 	if reason == "" {
-		reason = "noSelectedVersion"
+		reason = modbridge.BtnStatusNoSelectedVersion
 	}
 	icon := "mdi-cube-off-outline"
-	if reason != "noSelectedVersion" {
+	if reason != modbridge.BtnStatusNoSelectedVersion {
 		icon = "mdi-alert-circle-outline"
 	}
 	states := make([]appview.ModDownloadButtonState, 0, len(s.SearchResults))

@@ -7,16 +7,16 @@ import (
 	"github.com/rivo/tview"
 
 	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
-	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
 )
 
 // disableImpactDialog lists the prerequisites that would go missing when the
 // selected mods are disabled, and lets the user restore cached dependencies.
 type disableImpactDialog struct {
 	app       *App
-	groups    []uistate.ModGroup
+	groups    []appview.LocalModGroup
 	action    string
 	result    appstructs.LocalModDisableImpactResult
 	list      *wheelList
@@ -25,7 +25,7 @@ type disableImpactDialog struct {
 	d         *dialog
 }
 
-func (a *App) openDisableImpactDialog(groups []uistate.ModGroup, action string, result appstructs.LocalModDisableImpactResult) {
+func (a *App) openDisableImpactDialog(groups []appview.LocalModGroup, action string, result appstructs.LocalModDisableImpactResult) {
 	v := &disableImpactDialog{
 		app:      a,
 		groups:   groups,

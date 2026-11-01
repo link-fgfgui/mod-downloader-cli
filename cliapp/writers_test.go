@@ -13,12 +13,12 @@ import (
 	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
 )
 
-// TestManifestAndUpdateWriters covers the remaining human-readable writers that
-// the command tests only reach through JSON or error paths.
-func TestManifestAndUpdateWriters(t *testing.T) {
+// TestRequirementsAndUpdateWriters covers the remaining human-readable writers
+// that the command tests only reach through JSON or error paths.
+func TestRequirementsAndUpdateWriters(t *testing.T) {
 	var buf bytes.Buffer
 
-	if err := writeManifestEntries(&buf, []manifestEntry{
+	if err := writeRequirements(&buf, []requirement{
 		{Platform: "modrinth", Project: "sodium", Version: "0.5.8"},
 		{LocalFile: "custom-addon.jar"},
 	}); err != nil {
@@ -26,12 +26,12 @@ func TestManifestAndUpdateWriters(t *testing.T) {
 	}
 	for _, want := range []string{"modrinth:sodium==0.5.8", "# local: custom-addon.jar"} {
 		if !strings.Contains(buf.String(), want) {
-			t.Fatalf("manifest writer missing %q:\n%s", want, buf.String())
+			t.Fatalf("requirements writer missing %q:\n%s", want, buf.String())
 		}
 	}
 
 	buf.Reset()
-	if err := writeImportResults(&buf, []importResult{
+	if err := writeRequirementResults(&buf, []requirementResult{
 		{Line: "modrinth:sodium", Status: "installed", Note: "sodium.jar"},
 		{Line: "modrinth:lithium", Status: "skipped", Note: "already installed"},
 		{Line: "modrinth:iris", Status: "failed", Note: "no route"},
@@ -45,7 +45,7 @@ func TestManifestAndUpdateWriters(t *testing.T) {
 		"installed 1, skipped 1, failed 1",
 	} {
 		if !strings.Contains(buf.String(), want) {
-			t.Fatalf("import writer missing %q:\n%s", want, buf.String())
+			t.Fatalf("requirements writer missing %q:\n%s", want, buf.String())
 		}
 	}
 
@@ -82,20 +82,12 @@ func TestManifestAndUpdateWriters(t *testing.T) {
 			t.Fatalf("upgrade output missing %q:\n%s", want, buf.String())
 		}
 	}
-
-	buf.Reset()
-	if err := writeExportResult(&buf, map[string]any{"count": 2, "output": "mods.txt"}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(buf.String(), "exported 2 mods to mods.txt") {
-		t.Fatalf("export result = %q", buf.String())
-	}
 }
 
 // TestVerifyReportWriter covers the passing and failing text reports.
 func TestVerifyReportWriter(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeVerifyReport(&buf, verifyReport{Checked: 3, Passed: true}); err != nil {
+	if err := writeVerifyReport(&buf, appcore.VerifyReport{Checked: 3, Passed: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "checked 3 jars, all checks passed") {
@@ -103,9 +95,9 @@ func TestVerifyReportWriter(t *testing.T) {
 	}
 
 	buf.Reset()
-	if err := writeVerifyReport(&buf, verifyReport{
+	if err := writeVerifyReport(&buf, appcore.VerifyReport{
 		Checked: 2,
-		Issues: []verifyIssue{
+		Issues: []appcore.VerifyIssue{
 			{Kind: "missing-dependency", ModID: "fabric-api", Message: "missing required dependency", Suggest: "install modrinth:fabric-api"},
 			{Kind: "incompatible", ModID: "sodium", Message: "wrong loader", Advisory: true},
 		},
@@ -150,15 +142,15 @@ func TestResolveHelpers(t *testing.T) {
 		t.Fatalf("validateBool(maybe) = %v", err)
 	}
 
-	installed := installedProjectRefs([]structs.ModInfo{
-		{OnlinePlatform: "modrinth", OnlineSlug: "Sodium"},
+	installed := installedRequirementVersions([]structs.ModInfo{
+		{OnlinePlatform: "modrinth", OnlineSlug: "Sodium", Version: "0.5.8"},
 		{OnlinePlatform: "curseforge", OnlineProjectID: "Iris"},
 		{OnlinePlatform: "", OnlineSlug: "skip"},
 		{OnlinePlatform: "modrinth", OnlineSlug: "", OnlineProjectID: ""},
-		{OnlinePlatform: "modrinth", OnlineSlug: "sodium"},
+		{OnlinePlatform: "modrinth", OnlineSlug: "sodium", Version: "0.6.0"},
 	})
-	if len(installed) != 2 || !installed["modrinth:sodium"] || !installed["curseforge:iris"] {
-		t.Fatalf("installedProjectRefs = %#v", installed)
+	if len(installed) != 2 || installed["modrinth:sodium"] != "0.6.0" || installed["curseforge:iris"] != "" {
+		t.Fatalf("installedRequirementVersions = %#v", installed)
 	}
 
 	dir := t.TempDir()
@@ -176,16 +168,6 @@ func TestResolveHelpers(t *testing.T) {
 		t.Fatal("osStatFile(missing) reported a file")
 	}
 
-	if err := renameToDisabled(filePath); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filePath + ".disabled"); err != nil {
-		t.Fatalf("disabled file missing: %v", err)
-	}
-	// Already-disabled paths are a no-op.
-	if err := renameToDisabled(filePath + ".disabled"); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // TestInfoCommandLocalJar runs the info command on a local file: no online

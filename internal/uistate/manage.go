@@ -1,10 +1,10 @@
 package uistate
 
 import (
-	"path/filepath"
 	"strings"
 
 	"github.com/link-fgfgui/mod-downloader/core/models"
+	"github.com/link-fgfgui/mod-downloader/core/searchexpr"
 	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 )
 
@@ -19,13 +19,13 @@ const (
 // ManageRow is one renderable row of the Manage list.
 type ManageRow struct {
 	Kind  ManageRowKind
-	Group ModGroup
+	Group appview.LocalModGroup
 }
 
-// ModGroup is the core-owned aggregation of every physical JAR record sharing
-// one fileName/path/id. Grouping, JIJ de-duplication, search text and the
-// loader compatibility verdict all come from appcore.BuildLocalModGroups.
-type ModGroup = appview.LocalModGroup
+// appview.LocalModGroup (core-owned) is the aggregation of every physical JAR
+// record sharing one fileName/path/id. Grouping, JIJ de-duplication, search
+// text and the loader compatibility verdict all come from
+// appcore.BuildLocalModGroups.
 
 // Selectable reports whether the row participates in multi-select / Ctrl+A.
 func (r ManageRow) Selectable() bool { return r.Kind != RowKindIncompatibleToggle }
@@ -35,14 +35,7 @@ func (r ManageRow) RowKey() string {
 	if r.Kind == RowKindIncompatibleToggle {
 		return string(RowKindIncompatibleToggle)
 	}
-	m := r.Group.Primary
-	parts := []string{}
-	for _, v := range []string{m.ID, m.SHA1, m.Path, m.FileName} {
-		if v != "" {
-			parts = append(parts, v)
-		}
-	}
-	return strings.Join(parts, "|")
+	return r.Group.RowKey
 }
 
 // EnabledFilter enumerates the Manage status-filter options.
@@ -53,15 +46,14 @@ const (
 )
 
 // FilterGroups mirrors groupedMods: keyword + enabled-state filtering.
-func FilterGroups(groups []ModGroup, search string, enabledFilter string) []ModGroup {
-	needle := strings.ToLower(strings.TrimSpace(search))
+func FilterGroups(groups []appview.LocalModGroup, search string, enabledFilter string) []appview.LocalModGroup {
 	filter := enabledFilter
 	if filter == "" {
 		filter = FilterAll
 	}
-	out := make([]ModGroup, 0, len(groups))
+	out := make([]appview.LocalModGroup, 0, len(groups))
 	for _, group := range groups {
-		if needle != "" && !strings.Contains(group.SearchText, needle) {
+		if !searchexpr.Matches(group.SearchText, search) {
 			continue
 		}
 		if filter != FilterAll {
@@ -78,9 +70,9 @@ func FilterGroups(groups []ModGroup, search string, enabledFilter string) []ModG
 // PartitionAndBuildRows mirrors compatibleGroupedMods/incompatibleGroupedMods
 // plus managedRows: compatible groups first, then the toggle header (when any
 // incompatible group exists), then the incompatible groups when expanded.
-func PartitionAndBuildRows(groups []ModGroup, expanded bool) (rows []ManageRow, incompatibleCount int) {
-	compatible := make([]ModGroup, 0, len(groups))
-	incompatible := make([]ModGroup, 0)
+func PartitionAndBuildRows(groups []appview.LocalModGroup, expanded bool) (rows []ManageRow, incompatibleCount int) {
+	compatible := make([]appview.LocalModGroup, 0, len(groups))
+	incompatible := make([]appview.LocalModGroup, 0)
 	for _, group := range groups {
 		if group.Incompatible {
 			incompatible = append(incompatible, group)
@@ -104,7 +96,7 @@ func PartitionAndBuildRows(groups []ModGroup, expanded bool) (rows []ManageRow, 
 }
 
 // StrongModIDs mirrors strongModIds.
-func StrongModIDs(group ModGroup) []string {
+func StrongModIDs(group appview.LocalModGroup) []string {
 	out := []string{}
 	for _, m := range group.Strong {
 		if m.ID != "" {
@@ -115,7 +107,7 @@ func StrongModIDs(group ModGroup) []string {
 }
 
 // StrongModNames mirrors strongModNames.
-func StrongModNames(group ModGroup) []string {
+func StrongModNames(group appview.LocalModGroup) []string {
 	out := []string{}
 	for _, m := range group.Strong {
 		if v := firstNonEmpty(m.Name, m.ID); v != "" {
@@ -126,15 +118,17 @@ func StrongModNames(group ModGroup) []string {
 }
 
 // HasGroupedDetails mirrors hasGroupedDetails.
-func HasGroupedDetails(group ModGroup) bool { return len(group.Strong) > 1 || len(group.JIJ) > 0 }
+func HasGroupedDetails(group appview.LocalModGroup) bool {
+	return len(group.Strong) > 1 || len(group.JIJ) > 0
+}
 
 // CanReplaceVersion mirrors canReplaceVersion.
-func CanReplaceVersion(group ModGroup, hasSelectedInstance bool) bool {
-	return group.Primary.OnlinePlatform != "" && group.Primary.OnlineProjectID != "" && hasSelectedInstance
+func CanReplaceVersion(group appview.LocalModGroup, hasSelectedInstance bool) bool {
+	return group.CanReplaceVersion && hasSelectedInstance
 }
 
 // CanFavoriteGroup mirrors canFavoriteGroup.
-func CanFavoriteGroup(group ModGroup, minecraftVersion, modLoader string) bool {
+func CanFavoriteGroup(group appview.LocalModGroup, minecraftVersion, modLoader string) bool {
 	return strings.TrimSpace(minecraftVersion) != "" &&
 		strings.TrimSpace(modLoader) != "" &&
 		group.Primary.OnlinePlatform != "" &&
@@ -142,7 +136,7 @@ func CanFavoriteGroup(group ModGroup, minecraftVersion, modLoader string) bool {
 }
 
 // CanFavoriteSelection mirrors canFavoriteSelection.
-func CanFavoriteSelection(groups []ModGroup, minecraftVersion, modLoader string) bool {
+func CanFavoriteSelection(groups []appview.LocalModGroup, minecraftVersion, modLoader string) bool {
 	if len(groups) == 0 {
 		return false
 	}
@@ -154,26 +148,13 @@ func CanFavoriteSelection(groups []ModGroup, minecraftVersion, modLoader string)
 	return true
 }
 
-// OnlineProjectFromGroup mirrors onlineProjectFromGroup.
-func OnlineProjectFromGroup(group ModGroup) models.ModProject {
-	mod := group.Primary
-	platform := mod.OnlinePlatform
-	projectID := mod.OnlineProjectID
-	return models.ModProject{
-		ID:          strings.ToLower(platform) + ":" + projectID,
-		Platform:    platform,
-		ProjectID:   projectID,
-		Slug:        mod.OnlineSlug,
-		Title:       group.DisplayName,
-		Icon:        "mdi-package-variant",
-		IconURL:     mod.IconURL,
-		Description: mod.Description,
-		Categories:  group.Categories,
-	}
+// OnlineProjectFromGroup returns the core-built online project projection.
+func OnlineProjectFromGroup(group appview.LocalModGroup) models.ModProject {
+	return group.OnlineProject
 }
 
 // SelectedGroupPaths mirrors selectedGroupPaths: trimmed primary paths, de-duplicated.
-func SelectedGroupPaths(groups []ModGroup) []string {
+func SelectedGroupPaths(groups []appview.LocalModGroup) []string {
 	seen := map[string]bool{}
 	paths := []string{}
 	for _, group := range groups {
@@ -188,66 +169,13 @@ func SelectedGroupPaths(groups []ModGroup) []string {
 }
 
 // PrimaryBatchAction mirrors primaryBatchAction: disable when any selected group is enabled.
-func PrimaryBatchAction(groups []ModGroup) string {
+func PrimaryBatchAction(groups []appview.LocalModGroup) string {
 	for _, group := range groups {
 		if group.Primary.Enabled {
 			return "disable"
 		}
 	}
 	return "enable"
-}
-
-// CleanupCandidatesFromDelete mirrors the post-delete cleanup path: it returns
-// the scan candidates that are not among the just-deleted paths.
-func CleanupCandidatesFromDelete(candidates []UnusedCandidate, deletedPaths []string) []UnusedCandidate {
-	if len(candidates) == 0 {
-		return nil
-	}
-	deleted := map[string]bool{}
-	for _, p := range deletedPaths {
-		deleted[filepath.Clean(p)] = true
-	}
-	out := make([]UnusedCandidate, 0, len(candidates))
-	for _, c := range candidates {
-		if deleted[filepath.Clean(c.Path)] {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
-}
-
-// UnusedCandidate is a UI-neutral view of an unused-dependency candidate.
-type UnusedCandidate struct {
-	Path       string
-	FileName   string
-	ModIDs     []string
-	Name       string
-	OnlineName string
-	Evidence   []string
-}
-
-// CleanupEvidenceKey maps candidate evidence to the i18n suffix used by the UI.
-func CleanupEvidenceKey(evidence []string) string {
-	hasOnline := containsString(evidence, "online-library")
-	hasRequired := containsString(evidence, "required-by-excluded")
-	switch {
-	case hasOnline && hasRequired:
-		return "onlineAndDeleted"
-	case hasRequired:
-		return "deleted"
-	default:
-		return "online"
-	}
-}
-
-func containsString(values []string, target string) bool {
-	for _, v := range values {
-		if v == target {
-			return true
-		}
-	}
-	return false
 }
 
 func firstNonEmpty(values ...string) string {

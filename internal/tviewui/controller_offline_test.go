@@ -48,7 +48,7 @@ func TestOfflineControllersAreNoOps(t *testing.T) {
 		{"saveSimpleMode", func() { a.saveSimpleMode(true) }},
 		{"saveUnusedCleanup", func() { a.saveUnusedCleanup(true) }},
 		{"saveMCIM", func() { a.saveMCIM(true) }},
-		{"savePreferredReleaseType", func() { a.savePreferredReleaseType(uistate.ReleaseTypeBeta) }},
+		{"savePreferredReleaseType", func() { a.savePreferredReleaseType("beta") }},
 		{"saveNetworkSettings", func() { a.saveNetworkSettings(uistate.SettingsDrafts{}) }},
 		{"saveCacheDir", func() { a.saveCacheDir("/tmp/cache") }},
 		{"saveAPIKeys", func() { a.saveAPIKeys(appstructs.SaveAPIKeysRequest{}) }},

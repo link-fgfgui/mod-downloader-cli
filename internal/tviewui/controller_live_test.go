@@ -18,6 +18,7 @@ import (
 	"github.com/link-fgfgui/mod-downloader/core/storage"
 	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 	structs "github.com/link-fgfgui/mod-downloader/core/structs/minecraft"
+	appview "github.com/link-fgfgui/mod-downloader/core/structs/view"
 
 	"github.com/link-fgfgui/mod-downloader-cli/internal/i18n"
 	"github.com/link-fgfgui/mod-downloader-cli/internal/uistate"
@@ -213,7 +214,7 @@ func TestLiveSettingsControllers(t *testing.T) {
 		l.app.saveSimpleMode(true)
 		l.app.saveUnusedCleanup(true)
 		l.app.saveMCIM(true)
-		l.app.savePreferredReleaseType(uistate.ReleaseTypeBeta)
+		l.app.savePreferredReleaseType("beta")
 		l.app.saveNetworkSettings(uistate.SettingsDrafts{
 			FileConcurrency:       4,
 			ConcurrentDownloads:   2,
@@ -231,7 +232,7 @@ func TestLiveSettingsControllers(t *testing.T) {
 		if !a.settings.SimpleMode || !a.settings.AutoScanUnusedDependencies || !a.settings.MCIMEnabled {
 			t.Errorf("boolean settings not applied: %+v", a.settings)
 		}
-		if a.settings.PreferredReleaseType != uistate.ReleaseTypeBeta {
+		if a.settings.PreferredReleaseType != "beta" {
 			t.Errorf("release type=%q", a.settings.PreferredReleaseType)
 		}
 		if a.settings.FileConcurrency != 4 || a.settings.ConcurrentDownloads != 2 {
@@ -640,7 +641,7 @@ func TestLiveMinecraftControllers(t *testing.T) {
 	// Page-level batch operations drive the same controller path.
 	l.doUI(func() {
 		page := l.app.managePage()
-		group := uistate.ModGroup{Primary: structs.ModInfo{
+		group := appview.LocalModGroup{Primary: structs.ModInfo{
 			ID: "missing", FileName: "missing.jar",
 			Path: filepath.Join(dir, "versions", "fabric-1.20.1", "mods", "missing.jar"),
 		}}

@@ -101,32 +101,31 @@
 
 ---
 
-### 5. 模组清单导入与导出 (`export` / `import`)
-- [x] **实现 `export` 命令**
-  - **命令语法**：`mod-downloader-cli export [--output <file>]`
+### 5. 模组清单导出与还原 (`freeze` / `install -r`)
+- [x] **实现 `freeze` 命令**
+  - **命令语法**：`mod-downloader-cli freeze`
   - **设计规范**：
-    - 采用轻量文本清单格式（类似 Python `requirements.txt`）：
+    - 采用 pip `freeze` 风格，直接输出到标准输出，可通过重定向保存：
       - 每行格式：`<platform>:<slug-or-id>[==<version>]`（例如 `modrinth:sodium==0.5.8` 或 `curseforge:iris==1.7.0`）。
       - 未匹配到云端平台的模组以注释方式列出本地文件名，例如 `# local: custom-addon.jar`。
-      - 文件首部附带注释元数据（导出时间、Minecraft 版本、Loader）。
-    - 默认输出到标准输出 (stdout)，支持 `-o` / `--output <file>` 保存到文件（例如 `mods.txt`）。
+    - 支持 `--json` 输出。
   - **验收标准**：
-    - `mod-downloader-cli export -o mods.txt` 成功生成符合规范的清单文件。
+    - `mod-downloader-cli freeze > mods.txt` 成功生成符合规范的清单文件。
     - 输出内容排版清晰，可直接被文本编辑器阅读与修改。
 
-- [x] **实现 `import` 命令**
-  - **命令语法**：`mod-downloader-cli import [--skip-existing] <file>`
+- [x] **实现 `install -r` 命令**
+  - **命令语法**：`mod-downloader-cli install -r <file>`（等价于 `--requirement <file>`）
   - **设计规范**：
-    - 读取指定的清单文本文件，逐行解析：
+    - 读取 `freeze` 生成的清单文本文件，逐行解析：
       - 自动忽略空行及 `#` 开头的注释行。
       - 解析平台前缀、模组标识以及指定版本号。
     - 安装处理：
       - 若声明了确切版本号（如 `==0.5.8`），按指定版本安装。
       - 若未指定版本号，安装适配当前游戏版本的最新版本。
-      - 遇到已存在的文件默认跳过或覆盖（提供 `--skip-existing` 选项）。
-    - 安装进度展示与汇总结果（成功数、跳过数、失败数）。
+      - 已安装且满足版本要求的条目自动跳过（类似 pip 的 "Requirement already satisfied"）。
+    - 安装进度展示与汇总结果（成功数、跳过数、失败数）；任一失败时退出码为 1。
   - **验收标准**：
-    - `mod-downloader-cli import mods.txt` 在全新实例中一键还原下载所有列出模组。
+    - `mod-downloader-cli install -r mods.txt` 在全新实例中一键还原下载所有列出模组。
     - 清单中存在错误条目时不中断后续模组下载，最后统一汇总报错。
 
 ---
@@ -164,7 +163,7 @@
 
 ### 7. 文档与测试套件完善
 - [x] **单元测试与集成测试补充**
-  - 为所有新命令 (`enable`, `disable`, `check-update`, `upgrade`, `verify`, `info`, `export`, `import`, `config`) 编写完备的 `_test.go`。
+  - 为所有新命令 (`enable`, `disable`, `check-update`, `upgrade`, `verify`, `info`, `freeze`, `config`) 编写完备的 `_test.go`。
   - 覆盖参数互斥、非法输入、离线/无网络情况下的错误处理。
   - 确保 `go test ./...` 保持 100% 通过。
 - [x] **更新 `README.md`**

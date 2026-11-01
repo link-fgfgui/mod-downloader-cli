@@ -31,8 +31,6 @@ func osStatFile(path string) (string, bool) {
 
 // The report types are owned by appcore so the GUI and TUI can reuse the same
 // verification rules; the CLI only formats them.
-type verifyIssue = appcore.VerifyIssue
-type verifyReport = appcore.VerifyReport
 
 func (r runner) verifyCommand() *cli.Command {
 	return &cli.Command{
@@ -69,26 +67,12 @@ func (r runner) verifyCommand() *cli.Command {
 }
 
 // analyzeVerify delegates to the shared core rules.
-func analyzeVerify(modsDir string, mods []structs.ModInfo, mcVersion, modLoader string, strict bool) verifyReport {
+func analyzeVerify(modsDir string, mods []structs.ModInfo, mcVersion, modLoader string, strict bool) appcore.VerifyReport {
 	return appcore.VerifyLocalMods(modsDir, mods, mcVersion, modLoader, strict)
 }
 
-func resolveLocalModPath(modsDir string, mod structs.ModInfo) string {
-	path := strings.TrimSpace(mod.Path)
-	if path == "" {
-		if strings.TrimSpace(mod.FileName) == "" {
-			return ""
-		}
-		path = filepath.Join(modsDir, mod.FileName+".jar")
-	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(modsDir, path)
-	}
-	return filepath.Clean(path)
-}
-
 func writeVerifyReport(w io.Writer, value any) error {
-	report := value.(verifyReport)
+	report := value.(appcore.VerifyReport)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if len(report.Issues) == 0 {
 		fmt.Fprintf(tw, "checked %d jars, all checks passed\n", report.Checked)
@@ -175,7 +159,7 @@ func (r runner) infoCommand() *cli.Command {
 					if !matchesAnyModTarget(mods[i], targetSet) {
 						continue
 					}
-					path := resolveLocalModPath(runtime.TargetModsDir, mods[i])
+					path := appcore.ResolveLocalModPath(runtime.TargetModsDir, mods[i])
 					view, err := buildInfoView(path, &mods[i])
 					if err != nil {
 						return err

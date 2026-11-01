@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	bubblesprogress "github.com/charmbracelet/bubbles/progress"
+
+	"github.com/link-fgfgui/mod-downloader-cli/internal/formatutil"
 )
 
 // State is one progress sample.
@@ -67,10 +69,10 @@ func (l *Line) Update(s State) {
 		parts = append(parts, fmt.Sprintf("%d/%d", s.Index, s.Count))
 	}
 	if s.Name != "" {
-		parts = append(parts, truncate(s.Name, 28))
+		parts = append(parts, formatutil.Truncate(s.Name, 28))
 	}
 	if s.Speed > 0 {
-		parts = append(parts, humanSpeed(s.Speed))
+		parts = append(parts, formatutil.HumanSpeed(s.Speed))
 	}
 	_, _ = fmt.Fprintf(l.Out, "\r\x1b[K%s", strings.Join(parts, "  "))
 }
@@ -92,22 +94,4 @@ func ratio(done, total int64) float64 {
 		return 1
 	}
 	return r
-}
-
-func truncate(s string, w int) string {
-	r := []rune(s)
-	if len(r) <= w {
-		return s
-	}
-	if w <= 1 {
-		return "…"
-	}
-	return string(r[:w-1]) + "…"
-}
-
-func humanSpeed(bytesPerSecond int64) string {
-	if bytesPerSecond <= 0 {
-		return "0.00 MiB/s"
-	}
-	return fmt.Sprintf("%.2f MiB/s", float64(bytesPerSecond)/(1024*1024))
 }

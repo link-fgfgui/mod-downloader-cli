@@ -4,6 +4,9 @@
 `cliapp/app.go`). Both share argument parsing, `--project` compatibility, trailing
 flag re-parsing (`cliapp/flags.go`) and every error message.
 
+There is no standalone `search` command: `install` is the single entry point and
+performs keyword search only as the fallback described below.
+
 ## 1. Parser (`cliapp/target.go`)
 
 `ParseInstallTarget(raw, defaultPlatform) (InstallTarget, error)` delegates prefix
@@ -41,11 +44,28 @@ a multi-select search pick):
 3. **>1 exact hits** → interactive disambiguation; non-interactively the
    `--platform` candidate wins, else Modrinth, with a stderr notice.
 4. **0 exact hits** → keyword search fallback (`SearchModsTextCollect`, top 10 by
-   downloads). One result auto-selects; multiple results open the selector;
-   non-interactive mode returns a hard error instructing the user to pass an exact
-   slug or prefixed ID (never hangs).
+   downloads), restricted to the explicit platform prefix or `--platform` filter.
+   One result auto-selects; multiple results open the selector; non-interactive
+   mode returns a hard error instructing the user to pass an exact slug or
+   prefixed ID (never hangs).
 
 Platform ordering is deterministic (`platformRank`: Modrinth → CurseForge).
+
+### 3.1 Multi-target mode (`resolveInstallTargets`)
+
+When `install` receives more than one positional argument, `splitInstallRefs`
+splits every argument on whitespace and the tokens are resolved with
+`resolveExactInstallTarget`, which never searches:
+
+- **All tokens match** → every project is installed, pip-style.
+- **Any token misses** (`errNoExactMatch`) → the misses are printed to stderr,
+  the successful token results are discarded, and the whole original input is
+  retried through the normal single-target state machine above (keyword search
+  with the platform filter). This keeps `install mini map` working while
+  `install sodium iris` installs both exact packages.
+
+A single argument (including a quoted multi-word query) keeps the normal
+single-target behavior.
 
 ## 4. Async metadata pipeline (Phase 3)
 
@@ -111,3 +131,24 @@ probe, in both the CLI plan builder and the selector worker:
   slug, `LocalState` becomes `metadata_timeout`, and the selector renders the slug
   with a `metadata_timeout` badge instead of a spinner. A slow provider therefore
   never blocks the other candidates or the user's `Enter` confirmation.
+
+## 8. HTTP receiver (`install --server`)
+
+`install --server` starts `core/httpserver` on `httpserver.DefaultAddr`
+(`127.0.0.1:18801`) and blocks until `Ctrl+C` or context cancellation. The HTTP
+transport and request contract are owned by the core package; the CLI supplies
+only the `Accept` callback (`cliapp/server.go`).
+
+The callback maps each extension payload to an `InstallTarget` on the payload's
+platform (`mr` → Modrinth, `cf` → CurseForge), resolves it through the normal
+install state machine (exact ID/slug, then keyword fallback), and queues the
+result with `QueueModDownload`. Explicit `file` values become the queued
+`VersionID`. Results are returned one-for-one in payload order:
+
+- `{"queued":true,"queueId":…,"fileName":…,"versionId":…}`
+- `{"skipped":true,"reason":…}` for invalid platforms, empty ID/slug, or
+  resolution failures.
+
+Payloads are processed sequentially under a mutex so stdout logging and the
+shared download queue stay deterministic. `--server` is rejected together with
+project arguments, `--dry-run`, and `--version-id`.

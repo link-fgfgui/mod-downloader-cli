@@ -1,6 +1,7 @@
 package tviewui
 
 import (
+	"github.com/link-fgfgui/mod-downloader/core/modbridge"
 	"github.com/link-fgfgui/mod-downloader/core/models"
 	appstructs "github.com/link-fgfgui/mod-downloader/core/structs"
 
@@ -28,12 +29,12 @@ func (a *App) refreshDownloadStates() {
 		return
 	}
 	if a.search.SelectedVersion == "" || a.search.SelectedModLoader == "" {
-		a.search.DownloadStates = a.search.DisabledDownloadStates("invalidRequest")
+		a.search.DownloadStates = a.search.DisabledDownloadStates(modbridge.BtnStatusInvalidRequest)
 		a.refreshDownloadView()
 		return
 	}
 	if !a.mc.HasSelectedInstance() {
-		a.search.DownloadStates = a.search.DisabledDownloadStates("noSelectedVersion")
+		a.search.DownloadStates = a.search.DisabledDownloadStates(modbridge.BtnStatusNoSelectedVersion)
 		a.refreshDownloadView()
 		return
 	}
