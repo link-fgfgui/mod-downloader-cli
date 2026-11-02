@@ -1,22 +1,14 @@
-# TUI Specifications (`docs/specs/tui/`)
+# TUI Specifications
 
-> 状态：旧 `tui` 包已按 [tview 迁移计划](tview-migration.md) 删除；当前唯一
-> TUI 位于 `internal/tviewui`（Host 位于 `core/host`），测试见
-> `internal/tviewui/*_test.go`。`testing.md` 中的 `tui/`、`tea.Cmd` 等描述仅作
-> 历史参考。
-
-Specifications for the native terminal client (`internal/tviewui` + `core/host`)
-that mirrors the Wails GUI's behaviour while sharing the same `./core` module
-(symlinked to the sibling GUI checkout during the current migration stage).
+The only TUI is `internal/tviewui`; the shared host is `core/host`. Tests live in
+`internal/tviewui/*_test.go` and `internal/uistate/*_test.go`.
 
 - [Host Adapter](host-adapter.md): host lifecycle, event bridge, native-dialog
-  replacement, clipboard/completion feedback, logging and build injection.
-- [View State Layer](view-state.md): the pure `internal/uistate` controllers that
-  replace the Vue/Pinia stores, plus the tview shell composition contract.
+  replacement, clipboard/completion feedback, logging, and build injection.
+- [View State](view-state.md): the pure `internal/uistate` controllers and the
+  tview shell composition contract.
+- [Testing](testing.md): test layers, harnesses, coverage gates, and the
+  regression list.
 
-## Related specifications (inherited from the core/GUI repositories)
-
-- `docs/specs/core/backend/` — core domain rules reused verbatim by the TUI.
-- The GUI repository's `docs/specs/app/frontend/ui-state-lifecycle.md`,
-  `download-queue-actions.md` and `language-preference.md` describe the source
-  behaviour that this layer re-implements.
+Core domain rules reused by the TUI are specified in the GUI repository:
+[`docs/specs/core/`](../../../../mod-downloader-gui-v3/docs/specs/core/).
